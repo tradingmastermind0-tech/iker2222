@@ -2392,6 +2392,66 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   renderWatchlist();
   refreshWatchlist();
   setInterval(() => { if (!document.hidden) refreshWatchlist(); }, WATCH_REFRESH_MS);
+
+  // ============================================================
+  // VOICE (voice.js) — "show my watchlist", "show my holdings",
+  // "what's my net worth". Sets detail.reply / replyPromise; voice.js
+  // speaks it.
+  // ============================================================
+  function voiceFocus(cardId) {
+    setActiveTab('net');
+    const card = document.getElementById(cardId);
+    if (!card) return;
+    setTimeout(() => {
+      card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      card.classList.remove('dv-flash'); void card.offsetWidth; card.classList.add('dv-flash');
+    }, 50);
+  }
+  function waitFor(check, ms) {
+    return new Promise(resolve => {
+      const t0 = Date.now();
+      (function poll() { if (check() || Date.now() - t0 > ms) resolve(); else setTimeout(poll, 200); })();
+    });
+  }
+  function spokenPct(p, es) {
+    if (typeof p !== 'number') return es ? 'sin datos' : 'no data';
+    if (Math.abs(p) < 0.005) return es ? 'plano' : 'flat';
+    return (p > 0 ? (es ? 'sube ' : 'up ') : (es ? 'baja ' : 'down ')) + Math.abs(p).toFixed(2) + (es ? ' por ciento' : ' percent');
+  }
+  window.addEventListener('dash-voice', (e) => {
+    const d = e.detail, es = String(d.lang || '').indexOf('es') === 0;
+    if (d.action === 'finance-show' && d.section === 'watchlist') {
+      d.handled = true;
+      voiceFocus('nwWatchCard');
+      d.replyPromise = waitFor(() => watchData || watchErr, 4000).then(() => {
+        const q = (watchData && watchData.quotes) || {};
+        const parts = WATCHLIST.map(w => {
+          const use = q[w.symbol] || q[w.proxy];
+          const name = w.label === 'EUR/USD' ? (es ? 'euro dólar' : 'euro dollar') : (es && w.label === 'Gold' ? 'oro' : (es && w.label === 'WTI crude' ? 'el crudo WTI' : w.label));
+          return name + ' ' + spokenPct(use && use.changePct, es);
+        });
+        if (!watchData) return es ? 'Aquí está tu watchlist, pero los precios no han cargado.' : 'Here’s your watchlist, but prices haven’t loaded.';
+        return (es ? 'Tu watchlist hoy: ' : 'Your watchlist today: ') + parts.join(', ') + '.';
+      });
+    } else if (d.action === 'finance-show' && d.section === 'holdings') {
+      d.handled = true;
+      voiceFocus('nwHoldCard');
+      const hs = liveHoldings();
+      if (!hs.length) {
+        d.reply = es ? 'Aún no tienes posiciones. Pulsa LIVE en Stocks o Crypto para añadir una.' : 'You don’t have any holdings yet. Tap LIVE in Stocks or Crypto to add one.';
+      } else {
+        const total = hs.reduce((a, h) => a + (Number(h.amount) || 0), 0);
+        const day = hs.reduce((a, h) => a + (typeof h.chg === 'number' ? (Number(h.amount) || 0) * h.chg / (100 + h.chg) : 0), 0);
+        d.reply = (es ? 'Tienes ' + hs.length + (hs.length === 1 ? ' posición' : ' posiciones') + ' por ' : 'You have ' + hs.length + (hs.length === 1 ? ' holding' : ' holdings') + ' worth ')
+          + fmtMoney(total) + (day ? (es ? ', ' + (day >= 0 ? 'ganando ' : 'perdiendo ') : ', ' + (day >= 0 ? 'up ' : 'down ')) + fmtMoney(Math.abs(day)) + (es ? ' hoy.' : ' today.') : '.');
+      }
+    } else if (d.action === 'finance-networth') {
+      d.handled = true;
+      voiceFocus('netWorthTotal');
+      const el = document.getElementById('netWorthTotal');
+      d.reply = (es ? 'Tu patrimonio es ' : 'Your net worth is ') + (el ? el.textContent.trim() : '—') + '.';
+    }
+  });
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshWatchlist(); });
 
   function setLiveStatus(text, isErr) {

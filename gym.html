@@ -2692,6 +2692,58 @@ img, video, canvas, svg { max-width: 100%; }
     $('swapModalBg').classList.add('show');
   }
   $('swapExBtn').addEventListener('click', openSwapModal);
+
+  // ============================================================
+  // VOICE (voice.js) — "add 2.5 kg to bench" / "remove 5 kilos from
+  // squat". Selects the exercise and fills the weight (last set ±
+  // amount); it never logs a set, so a misheard command can't put a
+  // wrong set in your history.
+  // ============================================================
+  function voiceNorm(x) {
+    return String(x || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+  // Common spoken names → words that appear in exercise names.
+  const VOICE_SYNONYMS = { banca: 'bench', sentadilla: 'squat', 'peso muerto': 'deadlift', dominadas: 'pull', militar: 'overhead', remo: 'row' };
+  function findExerciseByVoice(spoken) {
+    let q = voiceNorm(spoken);
+    Object.keys(VOICE_SYNONYMS).forEach(k => { if (q.indexOf(k) !== -1) q += ' ' + VOICE_SYNONYMS[k]; });
+    const words = q.split(' ').filter(w => w.length >= 3 && !/^(the|press|del|los|las|con)$/.test(w));
+    let best = null, bestScore = 0;
+    state.exercises.forEach(ex => {
+      const name = voiceNorm(ex.name);
+      let score = 0;
+      if (name === voiceNorm(spoken)) score += 10;
+      words.forEach(w => { if ((' ' + name + ' ').indexOf(' ' + w) !== -1) score += 2; });
+      if (ex.alt) score -= 0.5; // prefer the planned exercise over a substitute
+      if (score > bestScore) { best = ex; bestScore = score; }
+    });
+    return bestScore >= 2 ? best : null;
+  }
+  window.addEventListener('dash-voice', (e) => {
+    const d = e.detail;
+    if (d.action !== 'gym-add-weight') return;
+    d.handled = true;
+    const es = String(d.lang || '').indexOf('es') === 0;
+    const ex = findExerciseByVoice(d.exercise);
+    if (!ex) { d.reply = es ? 'No encuentro un ejercicio llamado ' + d.exercise + '.' : 'I couldn’t find an exercise called ' + d.exercise + '.'; return; }
+    if (ex.bw) { d.reply = es ? ex.name + ' es de peso corporal, no lleva peso.' : ex.name + ' is a bodyweight exercise, so there’s no weight to add.'; return; }
+    // Show it: switch the gym/day filters to where this exercise lives.
+    if (ex.gym !== 'both') state.filterGym = ex.gym;
+    if (!ex.alt) state.filterDay = ex.day;
+    state.currentEx = ex.id;
+    saveState(); renderAll();
+    const logs = state.logs[ex.id] || [];
+    const base = logs.length ? logs[logs.length - 1].weight : (ex.startWeight || 0);
+    const w = Math.max(0, Math.round((base + d.amount) * 100) / 100);
+    $('weightInput').value = w;
+    const field = $('weightField');
+    if (field) { field.scrollIntoView({ behavior: 'smooth', block: 'center' }); field.classList.remove('dv-flash'); void field.offsetWidth; field.classList.add('dv-flash'); }
+    const kg = unit() === 'kg' ? (es ? ' kilos' : ' kilos') : ' ' + unit();
+    d.reply = es
+      ? ex.name + ': ' + String(w).replace('.', ',') + kg + '. Elige las repeticiones y pulsa Log set para guardarlo.'
+      : ex.name + ': ' + w + kg + '. Pick your reps and tap Log set to save it.';
+  });
   $('swapCancel').addEventListener('click', () => $('swapModalBg').classList.remove('show'));
   $('swapNewBtn').addEventListener('click', () => {
     const orig = state.exercises.find(e => e.id === swapOrigId);

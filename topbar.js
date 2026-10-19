@@ -463,8 +463,18 @@ body.topbar-modal-open {
   }
 
   // -------- Boot --------
+  // Voice commands (mic button + spoken answers) — see voice.js.
+  function loadVoice() {
+    if (isEmbedded() || document.getElementById('dash-voice-js')) return;
+    const sc = document.createElement('script');
+    sc.id = 'dash-voice-js';
+    sc.src = 'voice.js';
+    document.body.appendChild(sc);
+  }
+
   function boot() {
     injectStyleAndHTML();
+    loadVoice();
     const btn = document.getElementById('topbarWaterAdd');
     if (btn) btn.addEventListener('click', (e) => { e.preventDefault(); addWater(); });
     render();
