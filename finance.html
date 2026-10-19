@@ -440,6 +440,37 @@ html, body { scrollbar-width: none; -ms-overflow-style: none; }
   color: var(--success); background: rgba(107,227,164,0.10);
 }
 .quick-add-btn.nw-live-add:hover { background: rgba(107,227,164,0.18); color: var(--success); }
+/* Holdings + Today digest */
+.nw-hold-card .label { display: flex; justify-content: space-between; align-items: center; }
+.nw-hold-card [hidden] { display: none !important; }
+.nw-hold-head-val { font-size: 13px; color: var(--text-primary); font-weight: 600; letter-spacing: 0; text-transform: none; }
+.nw-hold-row {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+.nw-hold-row:last-child { border-bottom: none; }
+.nw-hold-l, .nw-hold-r { min-width: 0; }
+.nw-hold-r { text-align: right; flex-shrink: 0; }
+.nw-hold-sym { font-family: var(--font-mono); font-size: 13px; font-weight: 700; color: var(--text-primary); }
+.nw-hold-name { font-size: 11px; color: var(--text-tertiary); margin-left: 6px; }
+.nw-hold-sub { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-tertiary); margin-top: 2px; font-variant-numeric: tabular-nums; }
+.nw-hold-val { font-family: var(--font-mono); font-size: 13px; font-weight: 600; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.nw-hold-sub .up, .nw-hold-head-val .up, .nw-today .up { color: var(--success); }
+.nw-hold-sub .down, .nw-hold-head-val .down, .nw-today .down { color: var(--danger); }
+.nw-hold-empty { font-size: 12px; color: var(--text-tertiary); padding: 4px 0 2px; }
+.nw-hold-empty b { color: var(--success); font-family: var(--font-mono); font-size: 10.5px; }
+.nw-today-label { margin-top: 18px; }
+.nw-today { list-style: none; margin: 0; padding: 0; }
+.nw-today li { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 13px; line-height: 1.4; }
+.nw-today li:last-child { border-bottom: none; }
+.nw-today-ic { flex-shrink: 0; width: 18px; text-align: center; }
+.nw-today-body { min-width: 0; }
+.nw-today-title { color: var(--text-primary); text-decoration: none; }
+a.nw-today-title:hover { text-decoration: underline; }
+.nw-today-meta { font-size: 10.5px; color: var(--text-tertiary); margin-top: 2px; font-family: var(--font-mono); }
+.nw-today-meta b { color: var(--text-secondary); font-weight: 600; }
+.nw-today-empty { font-size: 12px; color: var(--text-tertiary); padding: 4px 0; }
+.nw-hold-foot { font-size: 10.5px; color: var(--text-tertiary); margin-top: 10px; font-family: var(--font-mono); }
 .nw-live-status { font-size: 10.5px; color: var(--text-tertiary); margin-top: 3px; font-family: var(--font-mono); }
 .nw-live-status.err { color: var(--danger); }
 
@@ -1773,6 +1804,17 @@ input[type="date"]::-webkit-calendar-picker-indicator {
         </div>
       </div>
     </div>
+
+    <!-- Holdings (live-priced rows) + what matters today for them -->
+    <div class="card nw-hold-card" id="nwHoldCard">
+      <div class="label"><span>📊 Holdings</span><span class="nw-hold-head-val" id="nwHoldTotal"></span></div>
+      <div id="nwHoldList"></div>
+      <div class="nw-hold-empty" id="nwHoldEmpty">Tap <b>LIVE</b> in Stocks or Crypto and enter a ticker + shares to track a holding.</div>
+      <div class="label nw-today-label"><span>⚡ Today</span><span class="nw-hold-head-val" id="nwTodayCount"></span></div>
+      <ul class="nw-today" id="nwToday"></ul>
+      <div class="nw-today-empty" id="nwTodayEmpty">Nothing big today for your holdings.</div>
+      <div class="nw-hold-foot" id="nwHoldFoot"></div>
+    </div>
   </div>
 </div>
 
@@ -2122,6 +2164,118 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     });
   });
 
+  // ============================================================
+  // HOLDINGS + TODAY — a summary of every live-priced row, and the
+  // "what matters today" digest from /api/digest (earnings this week,
+  // big moves, big news; max 5). If the live digest can't load, the
+  // copy saved by the daily cron (nw:daily, synced from Supabase) is
+  // shown instead.
+  // ============================================================
+  const DIGEST_REFRESH_MS = 15 * 60 * 1000;
+  let liveDigest = null;      // { items, generatedAt } from /api/digest
+  let digestSig = '';
+  let digestAt = 0;
+
+  function liveHoldings() {
+    const out = [];
+    LIVE_CATS.forEach(k => (storeGet('nw:' + k) || []).forEach(it => {
+      if (it && it.sym) out.push(Object.assign({ cat: k }, it));
+    }));
+    return out.sort((a, b) => (Number(b.amount) || 0) - (Number(a.amount) || 0));
+  }
+  function pctSpan(p) {
+    if (typeof p !== 'number') return '';
+    const up = p >= 0;
+    return '<span class="' + (up ? 'up' : 'down') + '">' + (up ? '▲' : '▼') + Math.abs(p).toFixed(2) + '%</span>';
+  }
+  function agoLabel(ms) {
+    const m = Math.max(0, Math.round((Date.now() - ms) / 60000));
+    if (m < 60) return m + 'm ago';
+    const h = Math.round(m / 60);
+    return h < 24 ? h + 'h ago' : Math.round(h / 24) + 'd ago';
+  }
+
+  function renderHoldings() {
+    const list = document.getElementById('nwHoldList');
+    if (!list) return;
+    const hs = liveHoldings();
+    document.getElementById('nwHoldEmpty').hidden = hs.length > 0;
+    let total = 0, dayChg = 0;
+    list.innerHTML = hs.map(h => {
+      const amt = Number(h.amount) || 0;
+      total += amt;
+      if (typeof h.chg === 'number') dayChg += amt * h.chg / (100 + h.chg);
+      const qty = (Number(h.qty) || 0).toLocaleString('en-US', { maximumFractionDigits: 8 });
+      const px = h.px ? ' × $' + Number(h.px).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: h.px < 1 ? 6 : 2 }) : ' · waiting for price';
+      const name = h.name && h.name.toUpperCase() !== String(h.sym).toUpperCase() ? '<span class="nw-hold-name">' + escapeHtml(h.name) + '</span>' : '';
+      return '<div class="nw-hold-row">'
+        + '<div class="nw-hold-l"><div><span class="nw-hold-sym">' + escapeHtml(h.sym) + '</span>' + name + '</div>'
+        + '<div class="nw-hold-sub">' + qty + (h.cat === 'crypto' ? '' : ' sh') + px + '</div></div>'
+        + '<div class="nw-hold-r"><div class="nw-hold-val">' + fmtMoney(amt) + '</div>'
+        + '<div class="nw-hold-sub">' + pctSpan(h.chg) + '</div></div>'
+        + '</div>';
+    }).join('');
+    const head = document.getElementById('nwHoldTotal');
+    if (hs.length) {
+      const pct = total - dayChg > 0 ? dayChg / (total - dayChg) * 100 : 0;
+      head.innerHTML = fmtMoney(total) + (dayChg ? ' · <span class="' + (dayChg >= 0 ? 'up' : 'down') + '">' + (dayChg >= 0 ? '+' : '−') + fmtMoney(Math.abs(dayChg)) + ' (' + Math.abs(pct).toFixed(2) + '%)</span>' : '');
+    } else {
+      head.textContent = '';
+    }
+    renderToday(hs);
+  }
+
+  function renderToday(hs) {
+    const ul = document.getElementById('nwToday');
+    if (!ul) return;
+    const daily = storeGet('nw:daily');
+    const useLive = liveDigest && Array.isArray(liveDigest.items);
+    const items = useLive ? liveDigest.items : (daily && Array.isArray(daily.digest) ? daily.digest : []);
+    const show = hs.length > 0;
+    document.querySelector('.nw-today-label').hidden = !show;
+    ul.hidden = !show;
+    document.getElementById('nwTodayEmpty').hidden = !show || items.length > 0;
+    document.getElementById('nwTodayCount').textContent = items.length ? items.length + (items.length === 1 ? ' item' : ' items') : '';
+    ul.innerHTML = items.slice(0, 5).map(it => {
+      const ic = it.kind === 'earnings' ? '📅' : it.kind === 'move' ? (it.changePct >= 0 ? '🟢' : '🔴') : '📰';
+      const title = it.url
+        ? '<a class="nw-today-title" href="' + escapeHtml(it.url) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(it.title) + '</a>'
+        : '<span class="nw-today-title">' + escapeHtml(it.title) + '</span>';
+      const meta = ['<b>' + escapeHtml(it.sym) + '</b>'];
+      if (it.source) meta.push(escapeHtml(it.source));
+      if (it.datetime) meta.push(agoLabel(it.datetime));
+      return '<li><span class="nw-today-ic">' + ic + '</span><div class="nw-today-body">' + title
+        + '<div class="nw-today-meta">' + meta.join(' · ') + '</div></div></li>';
+    }).join('');
+    const foot = [];
+    if (show && useLive) foot.push('News checked ' + agoLabel(liveDigest.generatedAt));
+    if (daily && daily.updatedAt) foot.push('Daily refresh ' + new Date(daily.updatedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }));
+    document.getElementById('nwHoldFoot').textContent = foot.join(' · ');
+  }
+
+  async function refreshDigest(force) {
+    const hs = liveHoldings();
+    const stocks = Array.from(new Set(hs.filter(h => h.cat === 'stocks').map(h => h.sym)));
+    const crypto = Array.from(new Set(hs.filter(h => h.cat === 'crypto').map(h => h.sym)));
+    const sig = stocks.join(',') + '|' + crypto.join(',');
+    if (!stocks.length && !crypto.length) { liveDigest = null; digestSig = sig; renderHoldings(); return; }
+    if (!force && sig === digestSig && Date.now() - digestAt < DIGEST_REFRESH_MS) return;
+    digestSig = sig; digestAt = Date.now();
+    const qs = new URLSearchParams();
+    if (stocks.length) qs.set('stocks', stocks.join(','));
+    if (crypto.length) qs.set('crypto', crypto.join(','));
+    try {
+      const r = await fetch('/api/digest?' + qs.toString());
+      const d = await r.json();
+      if (!r.ok || !Array.isArray(d.items)) throw new Error(d.error || 'HTTP ' + r.status);
+      liveDigest = d;
+    } catch (e) {
+      liveDigest = null; // fall back to the daily copy in nw:daily
+      digestAt = 0;
+    }
+    renderHoldings();
+  }
+
   function setLiveStatus(text, isErr) {
     const el = document.getElementById('nwLiveStatus');
     if (!el) return;
@@ -2180,6 +2334,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     if (!ratesLoaded) msg += ' · waiting for exchange rate';
     if (missing.length) msg += ' · not found: ' + missing.join(', ');
     setLiveStatus(msg, false);
+    refreshDigest(false);
   }
   function scheduleLivePrices() {
     clearInterval(liveTimer);
@@ -2343,6 +2498,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     renderNetWorthChart();
     renderAllocationDonut(sliceTotals, grand);
     renderActivity();
+    renderHoldings();
     if (typeof renderWishlist === 'function') renderWishlist();
     if (typeof renderOrders   === 'function') renderOrders();
     if (typeof updateOrdPreview === 'function') updateOrdPreview();
