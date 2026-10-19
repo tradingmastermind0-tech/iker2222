@@ -471,6 +471,23 @@ a.nw-today-title:hover { text-decoration: underline; }
 .nw-today-meta b { color: var(--text-secondary); font-weight: 600; }
 .nw-today-empty { font-size: 12px; color: var(--text-tertiary); padding: 4px 0; }
 .nw-hold-foot { font-size: 10.5px; color: var(--text-tertiary); margin-top: 10px; font-family: var(--font-mono); }
+/* Trading watchlist (no quantities) */
+.nw-watch-card .label { display: flex; justify-content: space-between; align-items: center; }
+.nw-watch-card [hidden] { display: none !important; }
+.nw-watch-chg { font-family: var(--font-mono); font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.nw-watch-chg.up { color: var(--success); }
+.nw-watch-chg.down { color: var(--danger); }
+.nw-watch-chg.flat { color: var(--text-tertiary); }
+.nw-watch-tag {
+  font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--text-tertiary); border: 1px solid rgba(255,255,255,0.10); border-radius: 4px;
+  padding: 1px 4px; margin-left: 6px; vertical-align: 1px;
+}
+.nw-watch-ev { display: flex; gap: 10px; padding: 7px 0; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 12.5px; }
+.nw-watch-ev:last-child { border-bottom: none; }
+.nw-watch-ev-time { font-family: var(--font-mono); font-size: 11px; color: var(--text-tertiary); flex-shrink: 0; width: 44px; }
+.nw-watch-ev-name { color: var(--text-primary); }
+.nw-watch-ev-meta { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-tertiary); margin-top: 2px; }
 .nw-live-status { font-size: 10.5px; color: var(--text-tertiary); margin-top: 3px; font-family: var(--font-mono); }
 .nw-live-status.err { color: var(--danger); }
 
@@ -1815,6 +1832,15 @@ input[type="date"]::-webkit-calendar-picker-indicator {
       <div class="nw-today-empty" id="nwTodayEmpty">Nothing big today for your holdings.</div>
       <div class="nw-hold-foot" id="nwHoldFoot"></div>
     </div>
+
+    <!-- Trading watchlist — prices to watch, no quantities -->
+    <div class="card nw-watch-card" id="nwWatchCard">
+      <div class="label"><span>🎯 Trading watchlist</span><span class="nw-hold-head-val" id="nwWatchUpdated"></span></div>
+      <div id="nwWatchList"></div>
+      <div class="label nw-today-label"><span>🗓 Today's high-impact events · USD &amp; oil</span></div>
+      <div id="nwWatchCal"></div>
+      <div class="nw-hold-foot" id="nwWatchFoot"></div>
+    </div>
   </div>
 </div>
 
@@ -2275,6 +2301,98 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     }
     renderHoldings();
   }
+
+  // ============================================================
+  // TRADING WATCHLIST — live price + daily change, no quantities.
+  // Each entry asks /api/watchlist for the real symbol AND a US-listed
+  // ETF proxy. Finnhub's free plan has no OANDA forex/CFD access
+  // (tested: 403), so the proxy shows today; if the plan is upgraded
+  // the real symbol takes over automatically. Proxies are labelled.
+  // ============================================================
+  const WATCHLIST = [
+    { label: 'WTI crude', symbol: 'OANDA:WTICO_USD', proxy: 'USO' },
+    { label: 'EUR/USD',   symbol: 'OANDA:EUR_USD',   proxy: 'FXE' },
+    { label: 'Gold',      symbol: 'OANDA:XAU_USD',   proxy: 'GLD' },
+  ];
+  const WATCH_REFRESH_MS = 60 * 1000;
+  let watchData = null, watchErr = '';
+
+  function fmtPx(p, dp) {
+    return Number(p).toLocaleString('en-US', { minimumFractionDigits: dp, maximumFractionDigits: dp });
+  }
+  function renderWatchlist() {
+    const list = document.getElementById('nwWatchList');
+    if (!list) return;
+    const q = (watchData && watchData.quotes) || {};
+    let proxied = 0;
+    list.innerHTML = WATCHLIST.map(w => {
+      const real = q[w.symbol], prox = q[w.proxy];
+      const use = real || prox;
+      if (!real && prox) proxied++;
+      // FX trades in 4–5 decimals; everything else in cents.
+      const pxStr = !use ? '—' : real
+        ? (w.symbol.indexOf('EUR_') !== -1 ? fmtPx(use.price, 5) : '$' + fmtPx(use.price, 2))
+        : '$' + fmtPx(use.price, 2);
+      const src = real ? w.symbol.replace('OANDA:', '') : (prox ? w.proxy + ' ETF' : 'no data');
+      const chg = use && typeof use.changePct === 'number' ? use.changePct : null;
+      const cls = chg == null || Math.abs(chg) < 0.005 ? 'flat' : chg > 0 ? 'up' : 'down';
+      const chgStr = chg == null ? '—' : (chg > 0 ? '▲' : chg < 0 ? '▼' : '') + Math.abs(chg).toFixed(2) + '%';
+      return '<div class="nw-hold-row">'
+        + '<div class="nw-hold-l"><div><span class="nw-hold-sym">' + escapeHtml(w.label) + '</span>'
+        + (!real && prox ? '<span class="nw-watch-tag">proxy</span>' : '') + '</div>'
+        + '<div class="nw-hold-sub">' + escapeHtml(src) + ' · ' + pxStr + '</div></div>'
+        + '<div class="nw-hold-r"><div class="nw-watch-chg ' + cls + '">' + chgStr + '</div>'
+        + '<div class="nw-hold-sub">today</div></div>'
+        + '</div>';
+    }).join('');
+
+    // Economic calendar
+    const cal = document.getElementById('nwWatchCal');
+    const c = watchData && watchData.calendar;
+    if (!c) {
+      cal.innerHTML = '<div class="nw-today-empty">' + (watchErr ? 'Unavailable right now.' : 'Loading…') + '</div>';
+    } else if (!c.available) {
+      cal.innerHTML = '<div class="nw-today-empty">Economic calendar isn’t included in Finnhub’s free plan.</div>';
+    } else if (!c.events.length) {
+      cal.innerHTML = '<div class="nw-today-empty">No high-impact USD or oil events today.</div>';
+    } else {
+      cal.innerHTML = c.events.map(e => {
+        const t = e.time ? new Date(String(e.time).replace(' ', 'T') + 'Z') : null;
+        const time = t && !isNaN(t) ? t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+        const nums = [['Act', e.actual], ['Est', e.estimate], ['Prev', e.prev]]
+          .filter(x => x[1] != null && x[1] !== '').map(x => x[0] + ' ' + x[1] + (e.unit || '')).join(' · ');
+        return '<div class="nw-watch-ev"><div class="nw-watch-ev-time">' + escapeHtml(time) + '</div><div>'
+          + '<div class="nw-watch-ev-name">' + escapeHtml(e.event) + '</div>'
+          + '<div class="nw-watch-ev-meta">' + escapeHtml(e.country || '') + (e.impact ? ' · ' + escapeHtml(e.impact) + ' impact' : '') + (nums ? ' · ' + escapeHtml(nums) : '') + '</div>'
+          + '</div></div>';
+      }).join('');
+    }
+
+    document.getElementById('nwWatchUpdated').textContent = watchData && watchData.at
+      ? new Date(watchData.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+    const foot = [];
+    if (watchErr) foot.push('Live prices unavailable — ' + watchErr);
+    if (proxied) foot.push('Proxy = US-listed ETF tracking the market; its daily % follows the underlying. OANDA symbols need a paid Finnhub plan.');
+    document.getElementById('nwWatchFoot').textContent = foot.join(' ');
+  }
+  async function refreshWatchlist() {
+    const syms = [];
+    WATCHLIST.forEach(w => { syms.push(w.symbol); if (w.proxy) syms.push(w.proxy); });
+    try {
+      const r = await fetch('/api/watchlist?symbols=' + encodeURIComponent(syms.join(',')));
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || 'HTTP ' + r.status);
+      watchData = Object.assign(d, { at: Date.now() });
+      watchErr = '';
+    } catch (e) {
+      watchErr = e.message || 'network error';
+    }
+    renderWatchlist();
+  }
+  renderWatchlist();
+  refreshWatchlist();
+  setInterval(() => { if (!document.hidden) refreshWatchlist(); }, WATCH_REFRESH_MS);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshWatchlist(); });
 
   function setLiveStatus(text, isErr) {
     const el = document.getElementById('nwLiveStatus');
