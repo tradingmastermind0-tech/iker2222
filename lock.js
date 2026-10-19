@@ -3,7 +3,7 @@
    Note: this is client-side only — it keeps casual visitors out, but anyone
    who views the page source can read the password. Fine for a personal dashboard. */
 (function () {
-  var PASSWORD = "chapisGM22!";
+  var PASSWORD = "615l450nzz";
   var KEY = "dash_unlocked";
   var DEVICE_KEY = "dash_device_trusted";
 
