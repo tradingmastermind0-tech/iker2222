@@ -1333,6 +1333,61 @@ img, video, canvas, svg { max-width: 100%; }
 .po-pr-flash.show { opacity: 1; transform: none; height: auto; }
 .po-pr-flash .po-pg-badge { font-size: 11px; padding: 6px 12px; }
 
+/* ---------- Quick progress buttons (+step kg / +1 rep) ---------- */
+.po-quick { display: flex; gap: 8px; margin-bottom: 12px; }
+.po-quick button {
+  flex: 1; padding: 10px 8px; border-radius: 10px; cursor: pointer;
+  background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+  color: var(--text-1); font-family: var(--font); font-size: 13px; font-weight: 600;
+  font-variant-numeric: tabular-nums; -webkit-tap-highlight-color: transparent;
+  transition: background 0.18s, border-color 0.18s;
+}
+.po-quick button:hover { background: rgba(255,255,255,0.09); border-color: var(--border-strong); }
+.po-quick button small { display: block; font-size: 10px; font-weight: 500; color: var(--text-3); margin-top: 2px; }
+
+/* ---------- Swap exercise (substitute for today) ---------- */
+.po-swap-note {
+  font-size: 11px; color: var(--text-3); margin-top: 8px;
+  display: flex; align-items: center; gap: 6px;
+}
+.po-swap-note b { color: var(--text-2); font-weight: 600; }
+.po-swap-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 4px; }
+.po-swap-opt {
+  display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  width: 100%; padding: 12px 14px; border-radius: 10px; cursor: pointer; text-align: left;
+  background: rgba(255,255,255,0.03); border: 1px solid var(--border);
+  color: var(--text-1); font-family: var(--font); font-size: 14px;
+}
+.po-swap-opt:hover { background: rgba(255,255,255,0.08); }
+.po-swap-opt span { font-size: 11px; color: var(--text-3); white-space: nowrap; }
+.po-swap-opt.undo { color: var(--warn); }
+.po-swap-group {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--text-3); margin: 12px 0 6px;
+}
+
+/* ---------- New-record star burst ---------- */
+.po-burst { position: fixed; z-index: 200; pointer-events: none; width: 0; height: 0; }
+.po-burst i {
+  position: absolute; left: 0; top: 0; font-style: normal; line-height: 1;
+  color: var(--good); text-shadow: 0 0 8px rgba(110,231,183,0.6);
+  animation: po-star 900ms cubic-bezier(.2,.7,.3,1) forwards;
+}
+@keyframes po-star {
+  0%   { transform: translate(-50%, -50%) scale(0.2) rotate(0deg); opacity: 1; }
+  70%  { opacity: 1; }
+  100% { transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(1) rotate(var(--rot)); opacity: 0; }
+}
+#logBtn.po-pr-pop { animation: po-pop 450ms ease-out; }
+@keyframes po-pop {
+  0% { box-shadow: 0 0 0 0 rgba(110,231,183,0.55); }
+  100% { box-shadow: 0 0 0 14px rgba(110,231,183,0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .po-burst { display: none; }
+  #logBtn.po-pr-pop { animation: none; }
+}
+
 .hidden { display: none !important; }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -1535,7 +1590,11 @@ img, video, canvas, svg { max-width: 100%; }
         <button class="po-btn-icon" id="editExBtn" title="Edit / delete" aria-label="Edit">
           <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>
         </button>
+        <button class="po-btn-icon" id="swapExBtn" title="Swap for today" aria-label="Swap exercise for today">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4 3 8l4 4"/><path d="M3 8h14"/><path d="m17 20 4-4-4-4"/><path d="M21 16H7"/></svg>
+        </button>
       </div>
+      <div class="po-swap-note hidden" id="swapNote"></div>
       <div class="po-no-ex" id="noExMsg" style="display:none">No exercises here yet. Tap <strong>+</strong> to add one.</div>
     </div>
 
@@ -1547,6 +1606,10 @@ img, video, canvas, svg { max-width: 100%; }
         <span class="po-last-label">Last time</span>
         <span class="po-last-value" id="lastSetValue"></span>
         <span class="po-last-meta" id="lastSetMeta"></span>
+      </div>
+      <div class="po-quick" id="quickRow">
+        <button type="button" id="quickW"><span id="quickWLbl">+2.5 kg</span><small id="quickWSub"></small></button>
+        <button type="button" id="quickR">+1 rep<small id="quickRSub"></small></button>
       </div>
       <div class="po-log-grid" id="logGrid">
         <div class="po-field" id="weightField">
@@ -1709,6 +1772,21 @@ img, video, canvas, svg { max-width: 100%; }
   </div>
 </div>
 
+<!-- Swap exercise (today only) modal -->
+<div class="po-modal-bg" id="swapModalBg">
+  <div class="po-modal">
+    <h3 id="swapModalTitle">Swap for today</h3>
+    <p style="font-size:12px;color:var(--text-3);margin:-6px 0 12px;line-height:1.45;">
+      Log a substitute today. Your plan stays the same, and it switches back tomorrow.
+    </p>
+    <div id="swapList"></div>
+    <div class="po-modal-actions">
+      <button class="po-btn-secondary" id="swapNewBtn">+ New exercise</button>
+      <button class="po-btn-secondary" id="swapCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <!-- Rotation editor modal -->
 <div class="po-modal-bg" id="rotModalBg">
   <div class="po-modal">
@@ -1795,6 +1873,9 @@ img, video, canvas, svg { max-width: 100%; }
     s.days  = (Array.isArray(s.days)  && s.days.length)  ? s.days  : CONFIG.days.slice();
     s.exercises = Array.isArray(s.exercises) ? s.exercises : buildDefaultExercises();
     s.logs = (s.logs && typeof s.logs === 'object') ? s.logs : {};
+    // Swaps only matter for the day they were made; drop older days.
+    const todayK = (function (d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); })(new Date());
+    s.swaps = (s.swaps && s.swaps[todayK]) ? { [todayK]: s.swaps[todayK] } : {};
     s.filterGym = s.filterGym || s.gyms[0].id;
     s.filterDay = s.filterDay || s.days[0].id;
     // Split rotation lives in state so the user can edit it via the pill modal.
@@ -1839,9 +1920,27 @@ img, video, canvas, svg { max-width: 100%; }
   function dayName(id) { const d = state.days.find(x => x.id === id); return d ? d.name : id; }
   function estimate1RM(w, r) { if (r < 2) return w; return w * (1 + r / 30); }
   function roundToStep(v, s) { return Math.round(v / s) * s; }
+  function localDayKey(d) {
+    d = d || new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+  // Today's substitutions: { originalExId: substituteExId }. Stored in
+  // state.swaps keyed by local date, so they sync and expire overnight.
+  function todaySwaps() { return (state.swaps && state.swaps[localDayKey()]) || {}; }
+  function swappedFrom(subId) {
+    const sw = todaySwaps();
+    const orig = Object.keys(sw).find(k => sw[k] === subId);
+    return orig ? state.exercises.find(e => e.id === orig) : null;
+  }
   function getFiltered() {
-    return state.exercises.filter(e =>
-      (e.gym === state.filterGym || e.gym === 'both') && e.day === state.filterDay);
+    const sw = todaySwaps();
+    const seen = {};
+    // Exercises flagged `alt` were created as substitutes; they only
+    // show up on a day where they're swapped in.
+    return state.exercises
+      .filter(e => !e.alt && (e.gym === state.filterGym || e.gym === 'both') && e.day === state.filterDay)
+      .map(e => (sw[e.id] && state.exercises.find(x => x.id === sw[e.id])) || e)
+      .filter(e => !seen[e.id] && (seen[e.id] = true));
   }
   function getCurrentEx() {
     const f = getFiltered();
@@ -1910,20 +2009,28 @@ img, video, canvas, svg { max-width: 100%; }
     const noMsg = $('noExMsg');
     const editBtn = $('editExBtn');
     const logBtn = $('logBtn');
+    const swapBtn = $('swapExBtn');
+    const note = $('swapNote');
     if (!f.length) {
       sel.innerHTML = '<option>—</option>';
-      sel.disabled = true; editBtn.disabled = true; logBtn.disabled = true;
+      sel.disabled = true; editBtn.disabled = true; logBtn.disabled = true; swapBtn.disabled = true;
       noMsg.style.display = 'block'; state.currentEx = null;
+      note.classList.add('hidden');
       return;
     }
-    sel.disabled = false; editBtn.disabled = false; logBtn.disabled = false;
+    sel.disabled = false; editBtn.disabled = false; logBtn.disabled = false; swapBtn.disabled = false;
     noMsg.style.display = 'none';
     if (!f.find(e => e.id === state.currentEx)) state.currentEx = f[0].id;
     sel.innerHTML = f.map(e => {
       const wLbl = e.bw ? ' · BW' : (e.startWeight ? ' · ' + e.startWeight + unit() : '');
       const sh = e.gym === 'both' ? ' ★' : '';
-      return '<option value="' + e.id + '"' + (e.id === state.currentEx ? ' selected' : '') + '>' + escape(e.name) + wLbl + sh + '</option>';
+      const from = swappedFrom(e.id);
+      const sw = from ? ' ⇄ for ' + escape(from.name) : '';
+      return '<option value="' + e.id + '"' + (e.id === state.currentEx ? ' selected' : '') + '>' + escape(e.name) + wLbl + sh + sw + '</option>';
     }).join('');
+    const from = swappedFrom(state.currentEx);
+    note.classList.toggle('hidden', !from);
+    if (from) note.innerHTML = '⇄ Swapped in for <b>' + escape(from.name) + '</b> today';
   }
   function renderForm() {
     const ex = getCurrentEx();
@@ -1950,6 +2057,7 @@ img, video, canvas, svg { max-width: 100%; }
     const m = $('lastSetMeta');
     const ex = getCurrentEx();
     const logs = ex ? getLogs() : [];
+    renderQuick(ex, logs);
     if (!ex || !logs.length) { wrap.classList.remove('show'); return; }
     const last = logs[logs.length - 1];
     const setStr = ex.bw ? (last.reps + ' reps') : (last.weight + unit() + ' × ' + last.reps);
@@ -2020,8 +2128,7 @@ img, video, canvas, svg { max-width: 100%; }
     (state.logs[ex.id] || []).forEach(l => {
       // Local calendar day, so a late-evening session isn't split off
       // into "tomorrow" by the UTC timestamp.
-      const d = new Date(l.date);
-      const k = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+      const k = localDayKey(new Date(l.date));
       (byDay[k] = byDay[k] || []).push(l);
     });
     let record = -Infinity;
@@ -2478,6 +2585,128 @@ img, video, canvas, svg { max-width: 100%; }
     const w = parseFloat($('weightInput').value) || 0;
     $('weightInput').value = w + (ex.step || 2.5);
   });
+
+  // ============================================================
+  // QUICK PROGRESS — one tap fills the form with last set + step kg
+  // (same reps) or last set + 1 rep (same weight).
+  // ============================================================
+  function quickBase(ex, logs) {
+    if (logs.length) return logs[logs.length - 1];
+    return { weight: ex.startWeight || 0, reps: ex.repMin || 1 };
+  }
+  function renderQuick(ex, logs) {
+    $('quickRow').classList.toggle('hidden', !ex);
+    if (!ex) return;
+    const b = quickBase(ex, logs), step = ex.step || 2.5;
+    $('quickW').classList.toggle('hidden', !!ex.bw);
+    $('quickWLbl').textContent = '+' + step + ' ' + unit();
+    $('quickWSub').textContent = (b.weight + step) + unit() + ' × ' + b.reps;
+    $('quickRSub').textContent = ex.bw ? (b.reps + 1) + ' reps' : b.weight + unit() + ' × ' + (b.reps + 1);
+  }
+  function setRepsValue(v) {
+    const row = $('repsRow');
+    let p = row.querySelector('.po-reps-pill[data-v="' + v + '"]');
+    if (!p) {
+      row.insertAdjacentHTML('beforeend', '<button type="button" class="po-reps-pill" data-v="' + v + '">' + v + '</button>');
+      p = row.lastElementChild;
+    }
+    p.click();
+  }
+  function applyQuick(addW, addR) {
+    const ex = getCurrentEx(); if (!ex) return;
+    const b = quickBase(ex, getLogs());
+    if (!ex.bw) $('weightInput').value = b.weight + addW;
+    setRepsValue(b.reps + addR);
+  }
+  $('quickW').addEventListener('click', () => { const ex = getCurrentEx(); if (ex) applyQuick(ex.step || 2.5, 0); });
+  $('quickR').addEventListener('click', () => applyQuick(0, 1));
+
+  // ============================================================
+  // NEW-RECORD STAR BURST
+  // ============================================================
+  function starBurst() {
+    if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const btn = $('logBtn');
+    const r = btn.getBoundingClientRect();
+    const burst = document.createElement('div');
+    burst.className = 'po-burst';
+    burst.style.left = (r.left + r.width / 2) + 'px';
+    burst.style.top = (r.top + r.height / 2) + 'px';
+    const N = 14;
+    for (let i = 0; i < N; i++) {
+      const a = (i / N) * Math.PI * 2 + Math.random() * 0.4;
+      const dist = 60 + Math.random() * 70;
+      const s = document.createElement('i');
+      s.textContent = '★';
+      s.style.fontSize = (12 + Math.random() * 12) + 'px';
+      s.style.setProperty('--dx', (Math.cos(a) * dist).toFixed(1) + 'px');
+      s.style.setProperty('--dy', (Math.sin(a) * dist * 0.7).toFixed(1) + 'px');
+      s.style.setProperty('--rot', (Math.random() * 240 - 120).toFixed(0) + 'deg');
+      s.style.animationDelay = (Math.random() * 80).toFixed(0) + 'ms';
+      burst.appendChild(s);
+    }
+    document.body.appendChild(burst);
+    setTimeout(() => burst.remove(), 1100);
+    btn.classList.remove('po-pr-pop');
+    void btn.offsetWidth; // restart the animation
+    btn.classList.add('po-pr-pop');
+  }
+
+  // ============================================================
+  // SWAP EXERCISE — substitute for today only
+  // ============================================================
+  let swapOrigId = null;     // the planned exercise being swapped out
+  let swapPendingFor = null; // set while "+ New exercise" creates a substitute
+  function setSwap(origId, subId) {
+    const k = localDayKey();
+    const day = Object.assign({}, todaySwaps());
+    if (subId) day[origId] = subId; else delete day[origId];
+    state.swaps = Object.keys(day).length ? { [k]: day } : {};
+  }
+  function openSwapModal() {
+    const cur = getCurrentEx(); if (!cur) return;
+    const orig = swappedFrom(cur.id) || cur;
+    swapOrigId = orig.id;
+    $('swapModalTitle').textContent = 'Swap ' + orig.name;
+    const inList = {};
+    getFiltered().forEach(e => { inList[e.id] = true; });
+    const opts = state.exercises.filter(e => !inList[e.id] && e.id !== orig.id);
+    const row = e => '<button type="button" class="po-swap-opt" data-id="' + e.id + '">' + escape(e.name)
+      + '<span>' + (e.alt ? 'substitute' : escape(dayName(e.day)) + ' · ' + escape(e.gym === 'both' ? 'both gyms' : gymName(e.gym))) + '</span></button>';
+    const alts = opts.filter(e => e.alt), others = opts.filter(e => !e.alt);
+    let html = '';
+    if (cur.id !== orig.id) {
+      html += '<div class="po-swap-list"><button type="button" class="po-swap-opt undo" data-undo="1">↺ Back to ' + escape(orig.name) + '<span>undo swap</span></button></div>';
+    }
+    if (alts.length) html += '<div class="po-swap-group">Your substitutes</div><div class="po-swap-list">' + alts.map(row).join('') + '</div>';
+    if (others.length) html += '<div class="po-swap-group">From other days</div><div class="po-swap-list">' + others.map(row).join('') + '</div>';
+    if (!alts.length && !others.length) html += '<div class="po-empty">No other exercises yet. Add a new one below.</div>';
+    $('swapList').innerHTML = html;
+    $('swapList').querySelectorAll('.po-swap-opt').forEach(b => b.addEventListener('click', () => {
+      if (b.dataset.undo) { setSwap(swapOrigId, null); state.currentEx = swapOrigId; }
+      else { setSwap(swapOrigId, b.dataset.id); state.currentEx = b.dataset.id; }
+      saveState();
+      $('swapModalBg').classList.remove('show');
+      renderAll();
+    }));
+    $('swapModalBg').classList.add('show');
+  }
+  $('swapExBtn').addEventListener('click', openSwapModal);
+  $('swapCancel').addEventListener('click', () => $('swapModalBg').classList.remove('show'));
+  $('swapNewBtn').addEventListener('click', () => {
+    const orig = state.exercises.find(e => e.id === swapOrigId);
+    $('swapModalBg').classList.remove('show');
+    if (!orig) return;
+    openExModal('add');
+    swapPendingFor = orig.id;
+    // Start from the original's settings — same slot, same rep range.
+    $('exModalTitle').textContent = 'New substitute for ' + orig.name;
+    modalGym = orig.gym; modalDay = orig.day;
+    $('exBw').checked = !!orig.bw;
+    $('exRepMin').value = orig.repMin; $('exRepMax').value = orig.repMax;
+    $('exStep').value = orig.step || 2.5;
+    renderModalSegs(); toggleBwFields();
+  });
   // Delegated click handler — reps row is regenerated per exercise via
   // renderRepsRow(), so we listen on the container rather than the
   // individual buttons.
@@ -2504,6 +2733,7 @@ img, video, canvas, svg { max-width: 100%; }
     saveState(); renderAll();
     if (prevBest != null && setScore(ex, entry) > prevBest + 1e-9) {
       showPrFlash(ex.bw ? reps + ' reps' : w + unit() + ' × ' + reps);
+      starBurst();
     }
     // Strength changed → composition estimate may shift
     if (typeof wtRender === 'function') wtRender();
@@ -2543,6 +2773,7 @@ img, video, canvas, svg { max-width: 100%; }
   }
   function openExModal(mode, ex) {
     editingExId = mode === 'edit' ? ex.id : null;
+    swapPendingFor = null;
     $('exModalTitle').textContent = mode === 'edit' ? 'Edit exercise' : 'Add exercise';
     $('exDelete').style.display = mode === 'edit' ? 'block' : 'none';
     if (mode === 'edit') {
@@ -2599,6 +2830,13 @@ img, video, canvas, svg { max-width: 100%; }
     if (editingExId) {
       const ex = state.exercises.find(e => e.id === editingExId);
       if (ex) Object.assign(ex, data);
+    } else if (swapPendingFor) {
+      // New substitute: kept out of the plan (alt) and swapped in for today.
+      const ex = Object.assign({ id: uid(), alt: true }, data);
+      state.exercises.push(ex);
+      setSwap(swapPendingFor, ex.id);
+      state.currentEx = ex.id;
+      swapPendingFor = null;
     } else {
       const ex = Object.assign({ id: uid() }, data);
       state.exercises.push(ex);
