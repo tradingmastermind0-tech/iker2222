@@ -400,6 +400,43 @@ html, body { scrollbar-width: none; -ms-overflow-style: none; }
 }
 .nw-del:hover { color: var(--danger); }
 
+/* Live prices (Finnhub via /api/quotes) */
+.nw-name-wrap { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.nw-name-wrap .nw-name { flex: none; }
+.nw-live-sub {
+  font-family: var(--font-mono); font-size: 10.5px; color: var(--text-tertiary);
+  margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+.nw-live-sub .up { color: var(--success); }
+.nw-live-sub .down { color: var(--danger); }
+.nw-live-btn {
+  background: none; border: 1px solid transparent; cursor: pointer; flex-shrink: 0;
+  color: var(--text-tertiary); font-family: var(--font-mono);
+  font-size: 9px; font-weight: 700; letter-spacing: 0.08em;
+  padding: 2px 5px; border-radius: 5px; line-height: 1.3;
+}
+.nw-live-btn:hover { color: var(--text-primary); border-color: rgba(255,255,255,0.12); }
+.nw-live-btn.on { color: var(--success); border-color: rgba(107,227,164,0.30); }
+.nw-link-ed {
+  display: grid; grid-template-columns: 1fr 80px auto auto; gap: 6px;
+  padding: 6px 0; align-items: center;
+}
+.nw-link-ed input {
+  min-width: 0; padding: 7px 9px; border-radius: 7px; outline: none;
+  background: rgba(0,0,0,0.30); border: 1px solid rgba(255,255,255,0.10);
+  color: var(--text-primary); font-family: var(--font-mono); font-size: 12px;
+}
+.nw-link-ed button {
+  padding: 7px 10px; border-radius: 7px; cursor: pointer; border: none;
+  background: rgba(255,255,255,0.08); color: var(--text-primary);
+  font-family: inherit; font-size: 12px; font-weight: 600;
+}
+.nw-link-ed button.unlink { background: none; color: var(--text-tertiary); }
+.nw-link-ed .nw-link-hint { grid-column: 1 / -1; font-size: 10.5px; color: var(--text-tertiary); }
+.nw-live-status { font-size: 10.5px; color: var(--text-tertiary); margin-top: 3px; font-family: var(--font-mono); }
+.nw-live-status.err { color: var(--danger); }
+
 .nw-subcard {
   background: rgba(255,255,255,0.025) !important;
   border: none;
@@ -1599,6 +1636,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
         <div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em;font-weight:500">Total net worth</div>
         <div id="netWorthTotal" style="font-size:34px;font-weight:700;color:var(--text-primary);line-height:1.05;margin-top:2px">CHF 0</div>
         <div id="netWorthBreakdown" style="font-size:11px;color:var(--text-tertiary);margin-top:4px"></div>
+        <div id="nwLiveStatus" class="nw-live-status" hidden></div>
       </div>
       <div style="display:flex;align-items:center;gap:6px">
         <span style="font-size:11px;color:var(--text-tertiary)">CHF</span>
@@ -1963,8 +2001,10 @@ input[type="date"]::-webkit-calendar-picker-indicator {
           EUR: data.rates.EUR || 1,
           GBP: data.rates.GBP || 1
         };
+        ratesLoaded = true;
         renderAllNetWorth();
         if (typeof renderSubs === 'function') renderSubs();
+        refreshLivePrices();
       }
     } catch (e) {}
   }
@@ -1977,14 +2017,169 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     return symbol + ' ' + num.toLocaleString('en-US', { minimumFractionDigits: num % 1 === 0 ? 0 : 2, maximumFractionDigits: 2 });
   }
 
+  // ============================================================
+  // LIVE PRICES — stock/crypto rows can carry { sym, qty }. Prices come
+  // from /api/quotes (a Vercel function that holds FINNHUB_API_KEY, so
+  // the key never reaches the browser). Quotes are USD; the row's
+  // amount is stored in CHF like every other row, so totals, the donut
+  // and sync all keep working unchanged.
+  // ============================================================
+  const LIVE_CATS = ['stocks', 'crypto'];
+  const LIVE_REFRESH_MS = 60 * 1000;
+  let liveEditing = null;   // "stocks:2" while that row's editor is open
+  let ratesLoaded = false;  // USD→CHF needs the real rate before we value rows
+  let liveTimer = null;
+
+  function liveSubLine(it) {
+    const qty = Number(it.qty) || 0;
+    let s = escapeHtml(it.sym) + ' · ' + qty.toLocaleString('en-US', { maximumFractionDigits: 8 });
+    if (it.px) {
+      s += ' × $' + Number(it.px).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: it.px < 1 ? 6 : 2 });
+      if (typeof it.chg === 'number') {
+        const up = it.chg >= 0;
+        s += ' <span class="' + (up ? 'up' : 'down') + '">' + (up ? '▲' : '▼') + Math.abs(it.chg).toFixed(2) + '%</span>';
+      }
+    } else {
+      s += ' · waiting for price';
+    }
+    return s;
+  }
+
+  function buildLinkEditor(items, idx, catKey) {
+    const it = items[idx];
+    const ed = document.createElement('div');
+    ed.className = 'nw-link-ed';
+    const sym = document.createElement('input');
+    sym.placeholder = catKey === 'crypto' ? 'BTC' : 'AAPL';
+    sym.value = it.sym || '';
+    sym.autocapitalize = 'characters';
+    sym.setAttribute('aria-label', 'Symbol');
+    const qty = document.createElement('input');
+    qty.type = 'text'; qty.inputMode = 'decimal';
+    qty.placeholder = 'Qty';
+    qty.value = it.qty != null ? String(it.qty) : '';
+    qty.setAttribute('aria-label', 'Quantity');
+    const save = document.createElement('button'); save.textContent = 'Save';
+    const off = document.createElement('button'); off.className = 'unlink';
+    off.textContent = it.sym ? 'Unlink' : 'Cancel';
+    const hint = document.createElement('div'); hint.className = 'nw-link-hint';
+    hint.textContent = catKey === 'crypto'
+      ? 'Coin symbol (BTC, ETH, SOL…) and how many you hold. Priced in USD from Binance.'
+      : 'US ticker (AAPL, VOO, TSLA…) and how many shares you hold. Priced in USD.';
+    function commit() {
+      const s = sym.value.trim().toUpperCase();
+      const q = parseFloat(qty.value.replace(',', '.'));
+      if (!/^[A-Z0-9.\-:]{1,30}$/.test(s)) { sym.focus(); return; }
+      if (!(q > 0)) { qty.focus(); return; }
+      if (it.sym !== s) { delete it.px; delete it.chg; delete it.at; }
+      it.sym = s; it.qty = q;
+      storeSet('nw:' + catKey, items);
+      liveEditing = null;
+      renderAllNetWorth();
+      refreshLivePrices();
+    }
+    save.addEventListener('click', commit);
+    [sym, qty].forEach(inp => inp.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); commit(); }
+      else if (e.key === 'Escape') { liveEditing = null; renderAllNetWorth(); }
+    }));
+    off.addEventListener('click', () => {
+      // Unlinking keeps the last value as a normal, hand-edited row.
+      if (it.sym) {
+        delete it.sym; delete it.qty; delete it.px; delete it.chg; delete it.at;
+        storeSet('nw:' + catKey, items);
+      }
+      liveEditing = null;
+      renderAllNetWorth();
+    });
+    ed.appendChild(sym); ed.appendChild(qty); ed.appendChild(save); ed.appendChild(off); ed.appendChild(hint);
+    setTimeout(() => (it.sym ? qty : sym).focus(), 0);
+    return ed;
+  }
+
+  function setLiveStatus(text, isErr) {
+    const el = document.getElementById('nwLiveStatus');
+    if (!el) return;
+    el.hidden = !text;
+    el.textContent = text || '';
+    el.classList.toggle('err', !!isErr);
+  }
+
+  async function refreshLivePrices() {
+    const linked = {};
+    LIVE_CATS.forEach(k => { linked[k] = (storeGet('nw:' + k) || []).filter(it => it && it.sym); });
+    const syms = k => Array.from(new Set(linked[k].map(it => it.sym)));
+    const stocks = syms('stocks'), crypto = syms('crypto');
+    if (!stocks.length && !crypto.length) { setLiveStatus(''); return; }
+
+    const qs = new URLSearchParams();
+    if (stocks.length) qs.set('stocks', stocks.join(','));
+    if (crypto.length) qs.set('crypto', crypto.join(','));
+    let data;
+    try {
+      const r = await fetch('/api/quotes?' + qs.toString());
+      data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+    } catch (e) {
+      setLiveStatus('Live prices unavailable — ' + (e.message || 'network error'), true);
+      return;
+    }
+
+    const quotes = data.quotes || {};
+    const usdPerChf = exchangeRates.USD || 1;
+    let changed = false;
+    LIVE_CATS.forEach(k => {
+      // Re-read so we never overwrite edits made while the request was in flight.
+      const items = storeGet('nw:' + k) || [];
+      let dirty = false;
+      items.forEach(it => {
+        if (!it || !it.sym) return;
+        const q = quotes[(k === 'stocks' ? 'stock:' : 'crypto:') + it.sym];
+        if (!q) return;
+        if (it.px !== q.price || it.chg !== q.changePct) { it.px = q.price; it.chg = q.changePct; it.at = q.t; dirty = true; }
+        if (ratesLoaded) {
+          const chf = (Number(it.qty) || 0) * q.price / usdPerChf;
+          if (Math.abs((Number(it.amount) || 0) - chf) >= 0.005) { it.amount = chf; dirty = true; }
+        }
+      });
+      if (dirty) { storeSet('nw:' + k, items); changed = true; }
+    });
+    if (changed && liveEditing === null) {
+      nwPriceRender = true;
+      try { renderAllNetWorth(); } finally { nwPriceRender = false; }
+    }
+
+    const missing = (data.missing || []).map(m => m.split(':').slice(1).join(':'));
+    const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    let msg = 'Live prices · updated ' + time;
+    if (!ratesLoaded) msg += ' · waiting for exchange rate';
+    if (missing.length) msg += ' · not found: ' + missing.join(', ');
+    setLiveStatus(msg, false);
+  }
+  function scheduleLivePrices() {
+    clearInterval(liveTimer);
+    liveTimer = setInterval(() => { if (!document.hidden) refreshLivePrices(); }, LIVE_REFRESH_MS);
+  }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshLivePrices(); });
+  scheduleLivePrices();
+  // Normally the first refresh fires once exchange rates load; if that
+  // request fails, still show prices (and the status) shortly after.
+  setTimeout(() => { if (!ratesLoaded) refreshLivePrices(); }, 5000);
+
   function renderNetWorthCategory(cat) {
     const items = storeGet('nw:' + cat.key) || [];
     const list = document.getElementById(cat.listId);
     if (!list) return 0;
     list.innerHTML = '';
     let total = 0;
+    const canLive = LIVE_CATS.indexOf(cat.key) !== -1;
     items.forEach((it, idx) => {
       total += Number(it.amount) || 0;
+      if (canLive && liveEditing === cat.key + ':' + idx) {
+        list.appendChild(buildLinkEditor(items, idx, cat.key));
+        return;
+      }
+      const isLive = canLive && !!it.sym;
       const row = document.createElement('div');
       row.className = 'nw-row';
       const name = document.createElement('span');
@@ -1992,11 +2187,27 @@ input[type="date"]::-webkit-calendar-picker-indicator {
       name.textContent = it.name;
       name.title = 'Tap to rename';
       name.addEventListener('click', () => beginNwNameEdit(name, items, idx, cat.key));
+      let nameCol = name;
+      if (isLive) {
+        // Name + a small "AAPL · 10 × $189.20 ▲1.2%" line underneath.
+        nameCol = document.createElement('div');
+        nameCol.className = 'nw-name-wrap';
+        const sub = document.createElement('div');
+        sub.className = 'nw-live-sub';
+        sub.innerHTML = liveSubLine(it);
+        nameCol.appendChild(name); nameCol.appendChild(sub);
+      }
       const amt = document.createElement('span');
       amt.className = 'nw-amt nw-amt-edit';
       amt.textContent = fmtMoney(it.amount);
-      amt.title = 'Tap to edit · type +500 to add, -200 to subtract, or a new total';
-      amt.addEventListener('click', () => beginNwAmountEdit(amt, items, idx, cat.key));
+      if (isLive) {
+        // Value comes from the live price — tapping edits symbol/quantity.
+        amt.title = 'Live value · tap to change symbol or quantity';
+        amt.addEventListener('click', () => { liveEditing = cat.key + ':' + idx; renderAllNetWorth(); });
+      } else {
+        amt.title = 'Tap to edit · type +500 to add, -200 to subtract, or a new total';
+        amt.addEventListener('click', () => beginNwAmountEdit(amt, items, idx, cat.key));
+      }
       const del = document.createElement('button'); del.className = 'nw-del'; del.textContent = '×';
       del.addEventListener('click', () => {
         const removed = items[idx];
@@ -2004,7 +2215,16 @@ input[type="date"]::-webkit-calendar-picker-indicator {
         if (removed) logActivity(cat.key, removed.name, -(Number(removed.amount) || 0), 'delete');
         renderAllNetWorth();
       });
-      row.appendChild(name); row.appendChild(amt); row.appendChild(del);
+      row.appendChild(nameCol);
+      if (canLive) {
+        const lb = document.createElement('button');
+        lb.className = 'nw-live-btn' + (isLive ? ' on' : '');
+        lb.textContent = 'LIVE';
+        lb.title = isLive ? 'Live price on · tap to edit' : 'Track a live price for this';
+        lb.addEventListener('click', () => { liveEditing = cat.key + ':' + idx; renderAllNetWorth(); });
+        row.appendChild(lb);
+      }
+      row.appendChild(amt); row.appendChild(del);
       list.appendChild(row);
     });
     document.getElementById(cat.totalId).textContent = fmtMoney(total);
@@ -2266,12 +2486,22 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   // Net-worth history chart
   const NW_HISTORY_KEY = 'nw:history';
   const NW_HISTORY_MAX = 500;
+  // Price-driven renders refresh the newest point instead of appending
+  // while it's under an hour old — otherwise minute-by-minute price
+  // ticks would push older history out of the 500-point window.
+  const NW_PRICE_COALESCE_MS = 60 * 60 * 1000;
+  let nwPriceRender = false;
   function logNetWorthSnapshot(grandCHF) {
     const v = Number(grandCHF) || 0;
     const hist = storeGet(NW_HISTORY_KEY) || [];
     const last = hist[hist.length - 1];
     if (last && Math.abs((last.v || 0) - v) < 0.005) return;
-    hist.push({ t: Date.now(), v: v });
+    if (nwPriceRender && last && last.p && Date.now() - last.t < NW_PRICE_COALESCE_MS) {
+      last.v = v;
+      storeSet(NW_HISTORY_KEY, hist);
+      return;
+    }
+    hist.push(nwPriceRender ? { t: Date.now(), v: v, p: 1 } : { t: Date.now(), v: v });
     if (hist.length > NW_HISTORY_MAX) hist.splice(0, hist.length - NW_HISTORY_MAX);
     storeSet(NW_HISTORY_KEY, hist);
   }
