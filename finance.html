@@ -434,6 +434,12 @@ html, body { scrollbar-width: none; -ms-overflow-style: none; }
 }
 .nw-link-ed button.unlink { background: none; color: var(--text-tertiary); }
 .nw-link-ed .nw-link-hint { grid-column: 1 / -1; font-size: 10.5px; color: var(--text-tertiary); }
+.nw-subcard .quick-add:has(.nw-live-add) { grid-template-columns: 1fr 90px auto auto; }
+.quick-add-btn.nw-live-add {
+  font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em;
+  color: var(--success); background: rgba(107,227,164,0.10);
+}
+.quick-add-btn.nw-live-add:hover { background: rgba(107,227,164,0.18); color: var(--success); }
 .nw-live-status { font-size: 10.5px; color: var(--text-tertiary); margin-top: 3px; font-family: var(--font-mono); }
 .nw-live-status.err { color: var(--danger); }
 
@@ -1742,6 +1748,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
           <input type="text" placeholder="Stock / fund" id="stocksName" />
           <input type="number" placeholder="Value" id="stocksAmount" step="0.01" />
           <button class="quick-add-btn" id="stocksAddBtn">+</button>
+          <button class="quick-add-btn nw-live-add" id="stocksLiveBtn" title="Add a holding with a live price">LIVE</button>
         </div>
       </div>
       <!-- Crypto -->
@@ -1752,6 +1759,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
           <input type="text" placeholder="Coin / wallet" id="cryptoName" />
           <input type="number" placeholder="Value" id="cryptoAmount" step="0.01" />
           <button class="quick-add-btn" id="cryptoAddBtn">+</button>
+          <button class="quick-add-btn nw-live-add" id="cryptoLiveBtn" title="Add a holding with a live price">LIVE</button>
         </div>
       </div>
       <!-- Other assets -->
@@ -2026,7 +2034,8 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   // ============================================================
   const LIVE_CATS = ['stocks', 'crypto'];
   const LIVE_REFRESH_MS = 60 * 1000;
-  let liveEditing = null;   // "stocks:2" while that row's editor is open
+  let liveEditing = null;   // "stocks:2" (or "stocks:new") while an editor is open
+  let liveNewName = '';
   let ratesLoaded = false;  // USD→CHF needs the real rate before we value rows
   let liveTimer = null;
 
@@ -2045,8 +2054,11 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     return s;
   }
 
-  function buildLinkEditor(items, idx, catKey) {
-    const it = items[idx];
+  // idx < 0 means "new live holding" (opened from the add bar's LIVE
+  // button); `newName` is whatever was typed in the add bar's name field.
+  function buildLinkEditor(items, idx, catKey, newName) {
+    const isNew = idx < 0;
+    const it = isNew ? { name: newName || '', amount: 0 } : items[idx];
     const ed = document.createElement('div');
     ed.className = 'nw-link-ed';
     const sym = document.createElement('input');
@@ -2073,6 +2085,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
       if (!(q > 0)) { qty.focus(); return; }
       if (it.sym !== s) { delete it.px; delete it.chg; delete it.at; }
       it.sym = s; it.qty = q;
+      if (isNew) { if (!it.name) it.name = s; items.push(it); }
       storeSet('nw:' + catKey, items);
       liveEditing = null;
       renderAllNetWorth();
@@ -2096,6 +2109,18 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     setTimeout(() => (it.sym ? qty : sym).focus(), 0);
     return ed;
   }
+
+  LIVE_CATS.forEach(k => {
+    const btn = document.getElementById(k + 'LiveBtn');
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+      const nameEl = document.getElementById(k + 'Name');
+      liveNewName = nameEl ? nameEl.value.trim() : '';
+      if (nameEl) nameEl.value = '';
+      liveEditing = k + ':new';
+      renderAllNetWorth();
+    });
+  });
 
   function setLiveStatus(text, isErr) {
     const el = document.getElementById('nwLiveStatus');
@@ -2227,6 +2252,9 @@ input[type="date"]::-webkit-calendar-picker-indicator {
       row.appendChild(amt); row.appendChild(del);
       list.appendChild(row);
     });
+    if (canLive && liveEditing === cat.key + ':new') {
+      list.appendChild(buildLinkEditor(items, -1, cat.key, liveNewName));
+    }
     document.getElementById(cat.totalId).textContent = fmtMoney(total);
     return total;
   }
