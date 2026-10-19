@@ -911,6 +911,20 @@ img, video, canvas, svg { max-width: 100%; }
 }
 
 .wt-chart-wrap { position: relative; margin: 16px 0 8px; }
+/* 7D / 30D / 90D / All range toggle (weight + progress charts) */
+.po-range {
+  display: flex; gap: 3px; padding: 3px; border-radius: 10px;
+  background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+}
+.po-range button {
+  flex: 1; border: none; background: transparent; cursor: pointer;
+  padding: 6px 0; border-radius: 7px;
+  font-family: var(--font-mono); font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em;
+  color: var(--text-3); -webkit-tap-highlight-color: transparent;
+}
+.po-range button.active { background: linear-gradient(180deg, #ffffff 0%, #e8e5dd 100%); color: #0a0a0b; }
+.wt-card .po-range { margin-top: 16px; }
+#pgBody .po-range { margin-bottom: 12px; }
 .wt-chart-yaxis {
   position: absolute; left: 0; top: 0; bottom: 0; width: 36px;
   display: flex; flex-direction: column; justify-content: space-between;
@@ -1415,6 +1429,7 @@ img, video, canvas, svg { max-width: 100%; }
 
       <div class="wt-empty" id="wtEmpty">Log your first weight to start tracking.</div>
 
+      <div class="po-range hidden" id="wtRange" role="group" aria-label="Weight chart range"><button type="button" data-r="7d">7D</button><button type="button" data-r="30d">30D</button><button type="button" data-r="90d">90D</button><button type="button" data-r="all">All</button></div>
       <div class="wt-chart-wrap hidden" id="wtChartWrap">
         <div class="wt-chart-yaxis">
           <span id="wtYAxisMax">—</span>
@@ -1671,6 +1686,7 @@ img, video, canvas, svg { max-width: 100%; }
       <div class="po-sub-title">Progress</div>
       <div id="pgEmpty" class="po-spark-empty">Log a set to start your progress chart.</div>
       <div id="pgBody" class="hidden">
+        <div class="po-range" id="pgRange" role="group" aria-label="Progress chart range"><button type="button" data-r="7d">7D</button><button type="button" data-r="30d">30D</button><button type="button" data-r="90d">90D</button><button type="button" data-r="all">All</button></div>
         <div class="po-pg-chart" id="pgWeightWrap">
           <div class="po-pg-chart-head"><strong id="pgWeightTitle">Top weight</strong><span>per session</span></div>
           <svg class="po-pg-svg" id="pgWeightSvg" height="110" role="img" aria-label="Top weight per session"></svg>
@@ -2122,6 +2138,29 @@ img, video, canvas, svg { max-width: 100%; }
   // same measure the Stats box uses. Nothing extra is stored: it's all
   // derived from state.logs, which already syncs via Supabase.
   // ============================================================
+  // Chart ranges (per device, not synced): weight chart + progress charts.
+  const RANGE_DAYS = { '7d': 7, '30d': 30, '90d': 90, all: null };
+  function loadRange(key, def) { try { const r = localStorage.getItem(key); return r in RANGE_DAYS ? r : def; } catch (e) { return def; } }
+  // Earliest local date key inside the range, or '' for "all".
+  function rangeStartKey(r) {
+    const days = RANGE_DAYS[r];
+    if (!days) return '';
+    const d = new Date(); d.setDate(d.getDate() - (days - 1));
+    return localDayKey(d);
+  }
+  function bindRange(groupId, key, get, set, rerender) {
+    const g = document.getElementById(groupId);
+    if (!g) return;
+    const sync = () => g.querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.r === get()));
+    g.querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
+      set(b.dataset.r);
+      try { localStorage.setItem(key, b.dataset.r); } catch (e) {}
+      sync(); rerender();
+    }));
+    sync();
+  }
+  let pgRange = loadRange('po_pg_range', 'all');
+
   function setScore(ex, s) { return ex.bw ? s.reps : estimate1RM(s.weight, s.reps); }
   function getSessions(ex) {
     const byDay = {};
@@ -2158,7 +2197,11 @@ img, video, canvas, svg { max-width: 100%; }
   }
   function pgSelect(ex, i) { pgSel[ex.id] = i; renderProgress(); }
 
-  function drawPgChart(svg, tip, ex, sessions, valFn, fmt, sel) {
+  // `sessions` is the visible slice; `offset` is its start in the full
+  // list, so `sel` and clicks stay in full-list indices.
+  function drawPgChart(svg, tip, ex, sessions, valFn, fmt, selFull, offset) {
+    offset = offset || 0;
+    const sel = selFull - offset;
     const W = svg.clientWidth || 320, H = 110;
     const padL = 38, padR = 10, padT = 8, padB = 22;
     svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
@@ -2187,7 +2230,7 @@ img, video, canvas, svg { max-width: 100%; }
     const dLbl = k => { const p = k.split('-'); return (+p[1]) + '/' + (+p[2]); };
     out += '<text class="po-pg-tick" x="' + xAt(0) + '" y="' + (H - 4) + '" text-anchor="' + (n === 1 ? 'middle' : 'start') + '">' + dLbl(sessions[0].key) + '</text>';
     if (n > 1) out += '<text class="po-pg-tick" x="' + xAt(n - 1) + '" y="' + (H - 4) + '" text-anchor="end">' + dLbl(sessions[n - 1].key) + '</text>';
-    out += '<line class="po-pg-sel" x1="' + xAt(sel) + '" x2="' + xAt(sel) + '" y1="' + padT + '" y2="' + (H - padB) + '"/>';
+    if (sel >= 0 && sel < sessions.length) out += '<line class="po-pg-sel" x1="' + xAt(sel) + '" x2="' + xAt(sel) + '" y1="' + padT + '" y2="' + (H - padB) + '"/>';
     if (n > 1) out += '<path class="po-pg-line" d="' + vals.map((v, i) => (i ? 'L' : 'M') + xAt(i).toFixed(1) + ' ' + yAt(v).toFixed(1)).join(' ') + '"/>';
     vals.forEach((v, i) => {
       const r = i === sel ? 6 : 4;
@@ -2210,7 +2253,7 @@ img, video, canvas, svg { max-width: 100%; }
       tip.classList.remove('hidden');
     };
     svg.onpointerleave = () => tip.classList.add('hidden');
-    svg.onclick = e => pgSelect(ex, nearest(e));
+    svg.onclick = e => pgSelect(ex, offset + nearest(e));
   }
 
   function renderProgress() {
@@ -2224,8 +2267,14 @@ img, video, canvas, svg { max-width: 100%; }
 
     $('pgWeightWrap').classList.toggle('hidden', !!ex.bw);
     $('pgRepsTitle').textContent = ex.bw ? 'Most reps' : 'Reps at top weight';
-    if (!ex.bw) drawPgChart($('pgWeightSvg'), $('pgWeightTip'), ex, sessions, s => s.topW, fmtW, sel);
-    drawPgChart($('pgRepsSvg'), $('pgRepsTip'), ex, sessions, s => s.topR, v => v + ' reps', sel);
+    // Range: charts show sessions inside it (at least the latest one);
+    // the strip and card below still browse every session.
+    const startKey = rangeStartKey(pgRange);
+    let off = startKey ? sessions.findIndex(x => x.key >= startKey) : 0;
+    if (off < 0) off = n - 1;
+    const shown = sessions.slice(off);
+    if (!ex.bw) drawPgChart($('pgWeightSvg'), $('pgWeightTip'), ex, shown, s => s.topW, fmtW, sel, off);
+    drawPgChart($('pgRepsSvg'), $('pgRepsTip'), ex, shown, s => s.topR, v => v + ' reps', sel, off);
 
     // Session strip — oldest → newest, scrolled to keep the selection in view.
     const strip = $('pgStrip');
@@ -3164,6 +3213,7 @@ img, video, canvas, svg { max-width: 100%; }
   }
 
   let wtEntries = wtLoad();
+  let wtRange = loadRange('po_wt_range', '30d');
 
   function wtSaveEntry(weight) {
     const key = wtDateKey(new Date());
@@ -3202,12 +3252,14 @@ img, video, canvas, svg { max-width: 100%; }
     // Chart, delta, composition need 2+ entries
     if (wtEntries.length >= 2) {
       $('wtChartWrap').classList.remove('hidden');
+      $('wtRange').classList.remove('hidden');
       $('wtLegend').classList.remove('hidden');
       wtRenderChart();
       wtRenderDelta();
       wtRenderComposition();
     } else {
       $('wtChartWrap').classList.add('hidden');
+      $('wtRange').classList.add('hidden');
       $('wtLegend').classList.add('hidden');
       $('wtDelta').classList.add('hidden');
       $('wtComp').classList.add('hidden');
@@ -3237,7 +3289,9 @@ img, video, canvas, svg { max-width: 100%; }
   }
 
   function wtRenderChart() {
-    const recent = wtEntries.slice(-30);
+    const startKey = rangeStartKey(wtRange);
+    let recent = startKey ? wtEntries.filter(e => e.dateKey >= startKey) : wtEntries.slice();
+    if (!recent.length) recent = wtEntries.slice(-1); // nothing in range: show the latest
     const weights = recent.map(e => e.weight);
     const min = Math.min.apply(null, weights);
     const max = Math.max.apply(null, weights);
@@ -3269,7 +3323,8 @@ img, video, canvas, svg { max-width: 100%; }
     $('wtChartContent').innerHTML = html;
     $('wtYAxisMax').textContent = yMax.toFixed(1);
     $('wtYAxisMin').textContent = yMin.toFixed(1);
-    $('wtMeta').textContent = wtEntries.length + ' ' + (wtEntries.length === 1 ? 'entry' : 'entries') + ' · last ' + recent.length + ' days';
+    const rangeTxt = { '7d': 'last 7 days', '30d': 'last 30 days', '90d': 'last 90 days', all: 'all time' }[wtRange];
+    $('wtMeta').textContent = recent.length + ' of ' + wtEntries.length + ' ' + (wtEntries.length === 1 ? 'entry' : 'entries') + ' · ' + rangeTxt;
   }
 
   function wtRenderDelta() {
@@ -3799,6 +3854,8 @@ img, video, canvas, svg { max-width: 100%; }
   // ============================================================
   // BOOT
   // ============================================================
+  bindRange('pgRange', 'po_pg_range', () => pgRange, r => { pgRange = r; }, renderProgress);
+  bindRange('wtRange', 'po_wt_range', () => wtRange, r => { wtRange = r; }, wtRender);
   renderAll();
   wtRender();
   photosRender();

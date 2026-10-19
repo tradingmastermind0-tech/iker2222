@@ -543,6 +543,19 @@ a.nw-today-title:hover { text-decoration: underline; }
   font-family: var(--font-mono);
 }
 .nw-chart-label { color: var(--text-tertiary); }
+/* 7D / 30D / 90D / All range toggle */
+.nw-range {
+  display: inline-flex; gap: 2px; padding: 2px; border-radius: 7px;
+  background: rgba(255,255,255,0.04);
+}
+.nw-range button {
+  border: none; background: transparent; cursor: pointer;
+  padding: 3px 7px; border-radius: 5px;
+  font-family: var(--font-mono); font-size: 9.5px; font-weight: 800; letter-spacing: 0.08em;
+  color: var(--text-tertiary); -webkit-tap-highlight-color: transparent;
+}
+.nw-range button:hover { color: var(--text-secondary); }
+.nw-range button.active { background: rgba(255,255,255,0.10); color: var(--text-primary); }
 .nw-chart-delta { font-variant-numeric: tabular-nums; color: var(--text-tertiary); }
 .nw-chart-delta.up   { color: #6BE3A4; }
 .nw-chart-delta.down { color: #FF8A8A; }
@@ -1707,7 +1720,8 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     <div class="nw-overview-grid">
       <div class="nw-chart-wrap" id="nwChartWrap">
         <div class="nw-chart-head">
-          <span class="nw-chart-label">All-time</span>
+          <span class="nw-chart-label" id="nwChartLabel">All-time</span>
+          <span class="nw-range" id="nwRange" role="group" aria-label="Chart range"><button type="button" data-r="7d">7D</button><button type="button" data-r="30d">30D</button><button type="button" data-r="90d">90D</button><button type="button" data-r="all">All</button></span>
           <span class="nw-chart-delta" id="nwChartDelta">—</span>
         </div>
         <svg class="nw-chart-svg" id="nwChartSvg" viewBox="0 0 600 200" preserveAspectRatio="none" aria-hidden="true">
@@ -2884,14 +2898,46 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     }
     return d.join(' ');
   }
+  // Chart range (per device): 7d / 30d / 90d / all. The stats under
+  // the chart (all-time high/low) keep using the full history.
+  const NW_RANGE_KEY = 'nw_chart_range';
+  const RANGE_DAYS = { '7d': 7, '30d': 30, '90d': 90, all: null };
+  const RANGE_LABEL = { '7d': 'Last 7 days', '30d': 'Last 30 days', '90d': 'Last 90 days', all: 'All-time' };
+  let nwRange = (function () { try { const r = localStorage.getItem(NW_RANGE_KEY); return r in RANGE_DAYS ? r : 'all'; } catch (e) { return 'all'; } })();
+  // Points inside the range, starting from the value carried in at the
+  // cutoff so the line doesn't jump in from nowhere.
+  function nwHistInRange(all) {
+    const days = RANGE_DAYS[nwRange];
+    if (!days || !all.length) return all;
+    const cutoff = Date.now() - days * 86400000;
+    const inside = all.filter(p => p.t >= cutoff);
+    let before = null;
+    for (const p of all) if (p.t < cutoff) before = p;
+    if (!before) return inside;
+    const carried = { t: cutoff, v: before.v };
+    return inside.length ? [carried].concat(inside) : [carried, { t: Date.now(), v: before.v }];
+  }
+  function nwSyncRangeUI() {
+    document.querySelectorAll('#nwRange button').forEach(b => b.classList.toggle('active', b.dataset.r === nwRange));
+    const lbl = document.getElementById('nwChartLabel');
+    if (lbl) lbl.textContent = RANGE_LABEL[nwRange];
+  }
+  document.querySelectorAll('#nwRange button').forEach(b => b.addEventListener('click', () => {
+    nwRange = b.dataset.r;
+    try { localStorage.setItem(NW_RANGE_KEY, nwRange); } catch (e) {}
+    renderNetWorthChart();
+  }));
+
   function renderNetWorthChart() {
+    nwSyncRangeUI();
     const wrap = document.getElementById('nwChartWrap');
     const svg = document.getElementById('nwChartSvg');
     const linePath = document.getElementById('nwChartLine');
     const areaPath = document.getElementById('nwChartArea');
     const deltaEl = document.getElementById('nwChartDelta');
     if (!wrap || !svg || !linePath || !areaPath) return;
-    const hist = storeGet(NW_HISTORY_KEY) || [];
+    const allHist = storeGet(NW_HISTORY_KEY) || [];
+    const hist = nwHistInRange(allHist);
     if (hist.length < 1) {
       wrap.classList.remove('has-data');
       linePath.setAttribute('d', '');
@@ -2935,7 +2981,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
       const y = H / 2;
       linePath.setAttribute('d', 'M0,' + y + ' L' + W + ',' + y);
       areaPath.setAttribute('d', 'M0,' + y + ' L' + W + ',' + y + ' L' + W + ',' + H + ' L0,' + H + ' Z');
-      renderChartStats(hist);
+      renderChartStats(allHist);
       return;
     }
     const points = hist.map((p, i) => ({
@@ -2947,7 +2993,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     const lastPt = points[points.length - 1];
     const firstPt = points[0];
     areaPath.setAttribute('d', lineD + ' L' + lastPt.x + ',' + H + ' L' + firstPt.x + ',' + H + ' Z');
-    renderChartStats(hist);
+    renderChartStats(allHist);
   }
 
   // Stats overlay — what 1% is worth, all-time high/low, snapshot count.
