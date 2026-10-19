@@ -472,9 +472,19 @@ body.topbar-modal-open {
     document.body.appendChild(sc);
   }
 
+  // Ambient animated background + title glitch — see bg.js.
+  function loadBg() {
+    if (isEmbedded() || document.getElementById('dash-bg-js')) return;
+    const sc = document.createElement('script');
+    sc.id = 'dash-bg-js';
+    sc.src = 'bg.js';
+    document.body.appendChild(sc);
+  }
+
   function boot() {
     injectStyleAndHTML();
     loadVoice();
+    loadBg();
     const btn = document.getElementById('topbarWaterAdd');
     if (btn) btn.addEventListener('click', (e) => { e.preventDefault(); addWater(); });
     render();
