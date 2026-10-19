@@ -1263,6 +1263,76 @@ img, video, canvas, svg { max-width: 100%; }
   .wt-compare-meta-line { font-size: 11px; }
 }
 
+/* ---------- Progress: per-exercise charts + session browser ---------- */
+.po-pg-chart { position: relative; margin-bottom: 14px; }
+.po-pg-chart-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-size: 11px; color: var(--text-3); margin-bottom: 4px;
+}
+.po-pg-chart-head strong { color: var(--text-2); font-weight: 600; }
+.po-pg-svg { width: 100%; display: block; overflow: visible; touch-action: pan-y; }
+.po-pg-grid { stroke: rgba(255,255,255,0.06); stroke-width: 1; }
+.po-pg-tick { fill: var(--text-3); font-size: 10px; font-family: var(--font-mono); }
+.po-pg-line { fill: none; stroke: var(--text-1); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.po-pg-dot { fill: var(--text-1); stroke: var(--bg); stroke-width: 2; }
+.po-pg-dot.pr { fill: var(--good); }
+.po-pg-sel { stroke: rgba(255,255,255,0.28); stroke-width: 1; stroke-dasharray: 3 3; }
+.po-pg-tip {
+  position: absolute; top: 18px; pointer-events: none; z-index: 2;
+  padding: 6px 9px; border-radius: 8px; white-space: nowrap;
+  background: #1c1c1f; border: 1px solid var(--border-strong);
+  font-size: 11px; color: var(--text-2); transform: translateX(-50%);
+}
+.po-pg-tip b { color: var(--text-1); font-weight: 600; }
+.po-pg-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 8px; border-radius: 999px;
+  font-size: 9.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  background: rgba(110,231,183,0.14); color: var(--good);
+}
+.po-pg-strip {
+  display: flex; gap: 8px; overflow-x: auto; scroll-snap-type: x proximity;
+  padding: 2px 0 8px; margin-bottom: 10px; scrollbar-width: none;
+}
+.po-pg-strip::-webkit-scrollbar { display: none; }
+.po-pg-chip {
+  flex: 0 0 auto; scroll-snap-align: end; min-width: 78px;
+  padding: 9px 11px; border-radius: 12px; text-align: left; cursor: pointer;
+  background: rgba(255,255,255,0.025); border: 1px solid var(--border);
+  color: var(--text-1); font-family: var(--font);
+}
+.po-pg-chip.active { border-color: var(--border-strong); background: rgba(255,255,255,0.07); }
+.po-pg-chip-date { font-size: 9.5px; font-weight: 700; letter-spacing: 0.1em; color: var(--text-3); }
+.po-pg-chip-set { font-size: 13px; font-weight: 600; margin-top: 3px; font-variant-numeric: tabular-nums; }
+.po-pg-chip .po-pg-badge { margin-top: 6px; padding: 2px 6px; font-size: 8.5px; }
+.po-pg-card {
+  padding: 14px; border-radius: 14px;
+  background: rgba(255,255,255,0.025); border: 1px solid var(--border);
+}
+.po-pg-card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.po-pg-card-title { flex: 1; font-size: 12px; font-weight: 700; letter-spacing: 0.1em; color: var(--text-2); }
+.po-pg-nav {
+  width: 30px; height: 30px; border-radius: 8px; cursor: pointer;
+  background: transparent; border: 1px solid var(--border); color: var(--text-2);
+  font-size: 15px; line-height: 1;
+}
+.po-pg-nav:disabled { opacity: 0.3; cursor: default; }
+.po-pg-sets { list-style: none; margin: 0; padding: 0; }
+.po-pg-sets li {
+  display: flex; justify-content: space-between; padding: 7px 0;
+  border-bottom: 1px solid var(--border); font-size: 13px; font-variant-numeric: tabular-nums;
+}
+.po-pg-sets li span:first-child { color: var(--text-3); }
+.po-pg-foot { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 10px; font-size: 11px; color: var(--text-3); }
+.po-pg-foot b { color: var(--text-2); font-weight: 600; }
+.po-pr-flash {
+  display: flex; justify-content: center; margin-top: 10px;
+  opacity: 0; transform: translateY(-4px); transition: opacity 0.25s, transform 0.25s;
+  pointer-events: none; height: 0; overflow: visible;
+}
+.po-pr-flash.show { opacity: 1; transform: none; height: auto; }
+.po-pr-flash .po-pg-badge { font-size: 11px; padding: 6px 12px; }
+
 .hidden { display: none !important; }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -1503,6 +1573,7 @@ img, video, canvas, svg { max-width: 100%; }
         </div>
       </div>
       <button class="po-btn-primary" id="logBtn">Log set</button>
+      <div class="po-pr-flash" id="prFlash" aria-live="polite"></div>
     </div>
 
     <!-- Prescription -->
@@ -1530,19 +1601,25 @@ img, video, canvas, svg { max-width: 100%; }
       </div>
     </div>
 
-    <!-- Trend -->
+    <!-- Progress — per-exercise weight + reps over time, built from
+         state.logs (so it syncs with everything else). One chart per
+         measure: weight and reps live on different scales. -->
     <div class="po-sub-section">
-      <div class="po-sub-title">Trend (last 10 sessions)</div>
-      <div class="po-spark-wrap">
-        <svg class="po-spark-svg" id="sparkline" viewBox="0 0 300 60" preserveAspectRatio="none">
-          <defs>
-            <linearGradient id="sparkGrad" x1="0" x2="0" y1="0" y2="1">
-              <stop offset="0%" stop-color="rgba(255,255,255,0.18)"/>
-              <stop offset="100%" stop-color="rgba(255,255,255,0)"/>
-            </linearGradient>
-          </defs>
-        </svg>
-        <div class="po-spark-empty" id="sparkEmpty">Need 2+ sessions for trend</div>
+      <div class="po-sub-title">Progress</div>
+      <div id="pgEmpty" class="po-spark-empty">Log a set to start your progress chart.</div>
+      <div id="pgBody" class="hidden">
+        <div class="po-pg-chart" id="pgWeightWrap">
+          <div class="po-pg-chart-head"><strong id="pgWeightTitle">Top weight</strong><span>per session</span></div>
+          <svg class="po-pg-svg" id="pgWeightSvg" height="110" role="img" aria-label="Top weight per session"></svg>
+          <div class="po-pg-tip hidden" id="pgWeightTip"></div>
+        </div>
+        <div class="po-pg-chart">
+          <div class="po-pg-chart-head"><strong id="pgRepsTitle">Reps at top weight</strong><span>per session</span></div>
+          <svg class="po-pg-svg" id="pgRepsSvg" height="110" role="img" aria-label="Reps per session"></svg>
+          <div class="po-pg-tip hidden" id="pgRepsTip"></div>
+        </div>
+        <div class="po-pg-strip" id="pgStrip" aria-label="Past sessions"></div>
+        <div class="po-pg-card" id="pgCard"></div>
       </div>
     </div>
 
@@ -1930,33 +2007,171 @@ img, video, canvas, svg { max-width: 100%; }
     $('bestSet').textContent = ex.bw ? (best.reps + 'r') : (best.weight + '×' + best.reps);
     $('sessionCount').textContent = logs.length;
   }
-  function renderSparkline() {
-    const svg = $('sparkline');
-    const empty = $('sparkEmpty');
-    const ex = getCurrentEx();
-    const logs = ex ? getLogs().slice(-10) : [];
-    if (logs.length < 2) {
-      svg.style.display = 'none'; empty.style.display = 'block';
-      return;
-    }
-    svg.style.display = 'block'; empty.style.display = 'none';
-    const vals = logs.map(l => ex.bw ? l.reps : estimate1RM(l.weight, l.reps));
-    const min = Math.min.apply(null, vals);
-    const max = Math.max.apply(null, vals);
-    const range = max - min || 1;
-    const W = 300, H = 60, pad = 4;
-    const pts = vals.map((v, i) => {
-      const x = pad + (W - pad * 2) * (i / (vals.length - 1));
-      const y = H - pad - (H - pad * 2) * ((v - min) / range);
-      return [x, y];
+  // ============================================================
+  // PROGRESS — groups an exercise's logs into sessions (one per day),
+  // charts top weight + reps, and flags "new best" sessions.
+  // Record = highest estimated 1RM (most reps for bodyweight), the
+  // same measure the Stats box uses. Nothing extra is stored: it's all
+  // derived from state.logs, which already syncs via Supabase.
+  // ============================================================
+  function setScore(ex, s) { return ex.bw ? s.reps : estimate1RM(s.weight, s.reps); }
+  function getSessions(ex) {
+    const byDay = {};
+    (state.logs[ex.id] || []).forEach(l => {
+      // Local calendar day, so a late-evening session isn't split off
+      // into "tomorrow" by the UTC timestamp.
+      const d = new Date(l.date);
+      const k = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+      (byDay[k] = byDay[k] || []).push(l);
     });
-    const linePath = pts.map((p, i) => (i === 0 ? 'M' : 'L') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
-    const fillPath = linePath + ' L' + pts[pts.length - 1][0].toFixed(1) + ' ' + H + ' L' + pts[0][0].toFixed(1) + ' ' + H + ' Z';
-    // Keep <defs> in place; replace any prior paths
-    const defsHTML = '<defs><linearGradient id="sparkGrad" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="rgba(255,255,255,0.18)"/><stop offset="100%" stop-color="rgba(255,255,255,0)"/></linearGradient></defs>';
-    svg.innerHTML = defsHTML
-      + '<path class="po-spark-fill" d="' + fillPath + '"/>'
-      + '<path class="po-spark-line" d="' + linePath + '"/>';
+    let record = -Infinity;
+    return Object.keys(byDay).sort().map(k => {
+      const sets = byDay[k];
+      let top = sets[0];
+      sets.forEach(s => { if (s.weight > top.weight || (s.weight === top.weight && s.reps > top.reps)) top = s; });
+      const best = Math.max.apply(null, sets.map(s => setScore(ex, s)));
+      const isPR = record !== -Infinity && best > record + 1e-9;
+      record = Math.max(record, best);
+      return {
+        key: k, sets, best, isPR,
+        topW: top.weight, topR: top.reps,
+        vol: sets.reduce((a, s) => a + (s.weight || 0) * (s.reps || 0), 0)
+      };
+    });
+  }
+  function fmtW(v) { return (Math.round(v * 100) / 100) + unit(); }
+  function topSetStr(ex, s) { return ex.bw ? (s.topR + ' reps') : (s.topW + unit() + ' × ' + s.topR); }
+  const BADGE = '<span class="po-pg-badge">★ New best</span>';
+
+  // Selected session index per exercise; missing = latest.
+  const pgSel = {};
+  function pgSelIndex(ex, n) {
+    const i = pgSel[ex.id];
+    return (i == null || i >= n) ? n - 1 : i;
+  }
+  function pgSelect(ex, i) { pgSel[ex.id] = i; renderProgress(); }
+
+  function drawPgChart(svg, tip, ex, sessions, valFn, fmt, sel) {
+    const W = svg.clientWidth || 320, H = 110;
+    const padL = 38, padR = 10, padT = 8, padB = 22;
+    svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+    const vals = sessions.map(valFn);
+    const vMin = Math.min.apply(null, vals), vMax = Math.max.apply(null, vals);
+    // Round-number ticks (1, 2, 2.5, 5 × 10^k) that bracket the data.
+    const rough = Math.max((vMax - vMin) / 2, 0.5);
+    const mag = Math.pow(10, Math.floor(Math.log10(rough)));
+    const step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(s => s >= rough);
+    let lo = Math.floor(vMin / step) * step, hi = Math.ceil(vMax / step) * step;
+    if (hi === lo) hi += step;
+    if (lo === vMin && lo - step >= 0) lo -= step;
+    if (hi === vMax) hi += step;
+    const ticks = [];
+    for (let t = lo; t <= hi + 1e-9; t += step) ticks.push(t);
+    const n = sessions.length;
+    const xAt = i => n === 1 ? (padL + W - padR) / 2 : padL + (W - padL - padR) * (i / (n - 1));
+    const yAt = v => padT + (H - padT - padB) * (1 - (v - lo) / (hi - lo));
+    let out = '';
+    ticks.forEach(t => {
+      const y = yAt(t).toFixed(1);
+      out += '<line class="po-pg-grid" x1="' + padL + '" x2="' + (W - padR) + '" y1="' + y + '" y2="' + y + '"/>';
+      out += '<text class="po-pg-tick" x="0" y="' + (+y + 3.5) + '">' + (Math.round(t * 10) / 10) + '</text>';
+    });
+    // First + last date on the x-axis; selected session gets a guide line.
+    const dLbl = k => { const p = k.split('-'); return (+p[1]) + '/' + (+p[2]); };
+    out += '<text class="po-pg-tick" x="' + xAt(0) + '" y="' + (H - 4) + '" text-anchor="' + (n === 1 ? 'middle' : 'start') + '">' + dLbl(sessions[0].key) + '</text>';
+    if (n > 1) out += '<text class="po-pg-tick" x="' + xAt(n - 1) + '" y="' + (H - 4) + '" text-anchor="end">' + dLbl(sessions[n - 1].key) + '</text>';
+    out += '<line class="po-pg-sel" x1="' + xAt(sel) + '" x2="' + xAt(sel) + '" y1="' + padT + '" y2="' + (H - padB) + '"/>';
+    if (n > 1) out += '<path class="po-pg-line" d="' + vals.map((v, i) => (i ? 'L' : 'M') + xAt(i).toFixed(1) + ' ' + yAt(v).toFixed(1)).join(' ') + '"/>';
+    vals.forEach((v, i) => {
+      const r = i === sel ? 6 : 4;
+      out += '<circle class="po-pg-dot' + (sessions[i].isPR ? ' pr' : '') + '" cx="' + xAt(i).toFixed(1) + '" cy="' + yAt(v).toFixed(1) + '" r="' + r + '"/>';
+    });
+    out += '<rect class="po-pg-hit" x="0" y="0" width="' + W + '" height="' + H + '" fill="transparent"/>';
+    svg.innerHTML = out;
+
+    const nearest = e => {
+      const rect = svg.getBoundingClientRect();
+      const x = (e.clientX - rect.left) * (W / rect.width);
+      let best = 0;
+      for (let i = 1; i < n; i++) if (Math.abs(xAt(i) - x) < Math.abs(xAt(best) - x)) best = i;
+      return best;
+    };
+    svg.onpointermove = e => {
+      const i = nearest(e), s = sessions[i];
+      tip.innerHTML = fmtPastDate(s.key) + ' · <b>' + fmt(vals[i]) + '</b>' + (s.isPR ? ' · ★' : '');
+      tip.style.left = Math.min(Math.max(xAt(i) / W * 100, 18), 82) + '%';
+      tip.classList.remove('hidden');
+    };
+    svg.onpointerleave = () => tip.classList.add('hidden');
+    svg.onclick = e => pgSelect(ex, nearest(e));
+  }
+
+  function renderProgress() {
+    const ex = getCurrentEx();
+    const sessions = ex ? getSessions(ex) : [];
+    $('pgEmpty').classList.toggle('hidden', sessions.length > 0);
+    $('pgBody').classList.toggle('hidden', !sessions.length);
+    if (!sessions.length) return;
+    const n = sessions.length;
+    const sel = pgSelIndex(ex, n);
+
+    $('pgWeightWrap').classList.toggle('hidden', !!ex.bw);
+    $('pgRepsTitle').textContent = ex.bw ? 'Most reps' : 'Reps at top weight';
+    if (!ex.bw) drawPgChart($('pgWeightSvg'), $('pgWeightTip'), ex, sessions, s => s.topW, fmtW, sel);
+    drawPgChart($('pgRepsSvg'), $('pgRepsTip'), ex, sessions, s => s.topR, v => v + ' reps', sel);
+
+    // Session strip — oldest → newest, scrolled to keep the selection in view.
+    const strip = $('pgStrip');
+    strip.innerHTML = sessions.map((s, i) =>
+      '<button type="button" class="po-pg-chip' + (i === sel ? ' active' : '') + '" data-i="' + i + '">'
+      + '<div class="po-pg-chip-date">' + fmtPastDate(s.key) + '</div>'
+      + '<div class="po-pg-chip-set">' + topSetStr(ex, s) + '</div>'
+      + (s.isPR ? BADGE : '')
+      + '</button>').join('');
+    strip.querySelectorAll('.po-pg-chip').forEach(b => b.addEventListener('click', () => pgSelect(ex, +b.dataset.i)));
+    const chip = strip.children[sel];
+    if (chip) {
+      const l = chip.offsetLeft - strip.offsetLeft, r = l + chip.offsetWidth;
+      if (l < strip.scrollLeft) strip.scrollLeft = l;
+      else if (r > strip.scrollLeft + strip.clientWidth) strip.scrollLeft = r - strip.clientWidth;
+    }
+
+    // Detail card for the selected session.
+    const s = sessions[sel], prev = sessions[sel - 1];
+    let delta = '';
+    if (prev) {
+      const d = ex.bw ? s.topR - prev.topR : s.topW - prev.topW;
+      const sign = d > 0 ? '+' : d < 0 ? '−' : '±';
+      delta = '<span>vs previous <b>' + sign + (ex.bw ? Math.abs(d) + ' reps' : fmtW(Math.abs(d))) + '</b></span>';
+    }
+    $('pgCard').innerHTML =
+      '<div class="po-pg-card-head">'
+      + '<button type="button" class="po-pg-nav" id="pgPrev" aria-label="Previous session"' + (sel === 0 ? ' disabled' : '') + '>‹</button>'
+      + '<div class="po-pg-card-title">' + fmtPastDate(s.key) + '</div>'
+      + (s.isPR ? BADGE : '')
+      + '<button type="button" class="po-pg-nav" id="pgNext" aria-label="Next session"' + (sel === n - 1 ? ' disabled' : '') + '>›</button>'
+      + '</div>'
+      + '<ul class="po-pg-sets">' + s.sets.map((x, i) =>
+          '<li><span>Set ' + (i + 1) + '</span><span>' + (ex.bw ? x.reps + ' reps' : x.weight + unit() + ' × ' + x.reps) + '</span></li>').join('') + '</ul>'
+      + '<div class="po-pg-foot">'
+      + (ex.bw ? '' : '<span>Volume <b>' + Math.round(s.vol) + unit() + '</b></span><span>Est. 1RM <b>' + Math.round(s.best) + unit() + '</b></span>')
+      + delta + '</div>';
+    $('pgPrev').onclick = () => pgSelect(ex, sel - 1);
+    $('pgNext').onclick = () => pgSelect(ex, sel + 1);
+  }
+  let pgResizeTimer = null;
+  window.addEventListener('resize', () => {
+    clearTimeout(pgResizeTimer);
+    pgResizeTimer = setTimeout(renderProgress, 120);
+  });
+
+  let prFlashTimer = null;
+  function showPrFlash(text) {
+    const el = $('prFlash');
+    el.innerHTML = '<span class="po-pg-badge">★ New best · ' + escape(text) + '</span>';
+    el.classList.add('show');
+    clearTimeout(prFlashTimer);
+    prFlashTimer = setTimeout(() => el.classList.remove('show'), 3500);
   }
   function renderHistory() {
     const wrap = $('historyCard');
@@ -2063,7 +2278,7 @@ img, video, canvas, svg { max-width: 100%; }
     renderDayPill();
     renderFilters(); renderSelect(); renderForm(); renderLastSet();
     renderRepsRow();
-    renderRx(); renderStats(); renderSparkline(); renderHistory();
+    renderRx(); renderStats(); renderProgress(); renderHistory();
     renderTodaysWorkout();
     renderPastWorkouts();
     // Pre-fill weight input with last logged weight (or starting weight)
@@ -2281,9 +2496,15 @@ img, video, canvas, svg { max-width: 100%; }
     const w = ex.bw ? 0 : (parseFloat($('weightInput').value) || 0);
     if (!ex.bw && w <= 0) { alert('Enter a weight.'); return; }
     const arr = state.logs[ex.id] || [];
-    arr.push({ weight: w, reps: reps, date: new Date().toISOString() });
+    const prevBest = arr.length ? Math.max.apply(null, arr.map(s => setScore(ex, s))) : null;
+    const entry = { weight: w, reps: reps, date: new Date().toISOString() };
+    arr.push(entry);
     state.logs[ex.id] = arr;
+    delete pgSel[ex.id]; // jump the progress view to today's session
     saveState(); renderAll();
+    if (prevBest != null && setScore(ex, entry) > prevBest + 1e-9) {
+      showPrFlash(ex.bw ? reps + ' reps' : w + unit() + ' × ' + reps);
+    }
     // Strength changed → composition estimate may shift
     if (typeof wtRender === 'function') wtRender();
     // Tiny pulse on the button so the user feels the save
