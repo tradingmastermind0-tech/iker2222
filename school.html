@@ -27,6 +27,9 @@
 .subj-grades li .l { flex: 1; min-width: 0; color: var(--text-secondary); overflow-wrap: anywhere; }
 .subj-grades li .w { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-tertiary); }
 .done-toggle { margin-top: 8px; background: none; border: 0; color: var(--text-tertiary); font-family: inherit; font-size: 12px; cursor: pointer; padding: 6px 0; }
+.subj-target { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 12px; color: var(--text-tertiary); }
+.subj-target .gm-select { padding: 6px 28px 6px 10px; font-size: 12.5px; border-radius: 9px; }
+.subj-avg small { font-size: 11px; font-weight: 600; color: var(--text-tertiary); margin-left: 6px; }
 .scale-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
 </style>
 </head>
@@ -75,8 +78,9 @@
     <div class="section-title">Grades</div>
     <div class="gm-card">
       <div class="scale-row">
-        <span class="gm-eyebrow" style="margin:0">Per subject · tap to see grades</span>
+        <span class="gm-eyebrow" style="margin:0">Per subject · tap for grades &amp; target</span>
         <select class="gm-select" id="scaleSel" aria-label="Grading scale">
+          <option value="alevel">A-level (A*–U)</option>
           <option value="6">Scale 1–6</option>
           <option value="10">Scale 0–10</option>
           <option value="20">Scale 0–20</option>
@@ -87,12 +91,13 @@
       <div class="empty-state" id="gradeEmpty">No grades yet.</div>
       <form class="form" id="gradeForm" autocomplete="off">
         <input class="gm-input" id="gradeSubject" placeholder="Subject" list="subjectList" required>
-        <input class="gm-input num" id="gradeValue" type="number" step="0.01" inputmode="decimal" placeholder="Grade" required>
+        <input class="gm-input num" id="gradeValue" type="number" step="0.01" inputmode="decimal" placeholder="Grade">
+        <select class="gm-select" id="gradeLetter" aria-label="Grade"><option value="">Grade</option></select>
         <input class="gm-input num" id="gradeWeight" type="number" step="0.1" min="0.1" inputmode="decimal" placeholder="Weight 1">
         <input class="gm-input" id="gradeLabel" placeholder="What for? (optional)">
         <button class="gm-add" type="submit">Add</button>
       </form>
-      <div class="hint">Averages are weighted. Leave weight empty for 1 (use 2 for an exam that counts double).</div>
+      <div class="hint" id="gradeHint">Averages are weighted. Leave weight empty for 1 (use 2 for an exam that counts double).</div>
     </div>
   </div>
   <datalist id="subjectList"></datalist>
@@ -104,13 +109,37 @@
   'use strict';
   const L = window.Life, $ = id => document.getElementById(id);
   const KEY = 'school_v1';
-  const SCALES = { '6': { min: 1, max: 6, pass: 4 }, '10': { min: 0, max: 10, pass: 5 }, '20': { min: 0, max: 20, pass: 10 }, '100': { min: 0, max: 100, pass: 50 } };
+  // A-level grades are stored as UCAS points (A*=56 … U=0); averages
+  // are turned back into the nearest letter. Numeric scales store the
+  // number itself. Every grade remembers the scale it was entered on.
+  const LETTERS = [['A*', 56], ['A', 48], ['B', 40], ['C', 32], ['D', 24], ['E', 16], ['U', 0]];
+  const UCAS = Object.fromEntries(LETTERS);
+  const SCALES = {
+    alevel: { min: 0, max: 56, pass: 16, letters: true },
+    '6': { min: 1, max: 6, pass: 4 }, '10': { min: 0, max: 10, pass: 5 }, '20': { min: 0, max: 20, pass: 10 }, '100': { min: 0, max: 100, pass: 50 },
+  };
+  const DEFAULT_SCALE = 'alevel';
+  // Nearest letter to an average in UCAS points (ties round up).
+  function toLetter(points) {
+    let best = LETTERS[0];
+    LETTERS.forEach(l => { if (Math.abs(points - l[1]) < Math.abs(points - best[1]) || (Math.abs(points - l[1]) === Math.abs(points - best[1]) && l[1] > best[1])) best = l; });
+    return best[0];
+  }
   let showDone = false;
   const open = {};
 
   function state() {
     const s = L.load(KEY, {});
-    return { tasks: Array.isArray(s.tasks) ? s.tasks : [], grades: Array.isArray(s.grades) ? s.grades : [], scale: SCALES[s.scale] ? s.scale : '10' };
+    // Older versions saved '10' without the user ever picking it; only
+    // keep a scale the user chose (scaleChosen), otherwise A-level.
+    const chosen = !!s.scaleChosen && SCALES[s.scale];
+    const legacy = SCALES[s.scale] && s.scale !== 'alevel' ? s.scale : '10';
+    const grades = (Array.isArray(s.grades) ? s.grades : []).map(g => g.scale ? g : Object.assign({}, g, { scale: legacy }));
+    return {
+      tasks: Array.isArray(s.tasks) ? s.tasks : [], grades,
+      scale: chosen ? s.scale : DEFAULT_SCALE, scaleChosen: !!s.scaleChosen,
+      targets: s.targets && typeof s.targets === 'object' ? s.targets : {},
+    };
   }
   function put(s) { L.save(KEY, s); render(); }
 
@@ -125,6 +154,20 @@
     return w ? list.reduce((a, g) => a + Number(g.grade) * (Number(g.weight) || 1), 0) / w : null;
   }
   function fmtG(v) { return v == null ? '—' : (Math.round(v * 100) / 100).toString(); }
+  // A grade/average in the current scale, as shown to the user.
+  function show(v, sc) { return v == null ? '—' : sc.letters ? toLetter(v) : fmtG(v); }
+  // Value used for comparisons: letters compare by the displayed letter.
+  function cmpVal(v, sc) { return sc.letters ? UCAS[toLetter(v)] : v; }
+  function targetFor(s, subject) {
+    const t = s.targets[subject];
+    return t && t.scale === s.scale && t.value !== '' && t.value != null ? t.value : null;
+  }
+  function targetPoints(t, sc) { return sc.letters ? UCAS[t] : Number(t); }
+  function targetOptions(sc, current) {
+    const vals = sc.letters ? LETTERS.map(l => l[0])
+      : Array.from({ length: Math.floor(sc.max - sc.min) + 1 }, (_, i) => String(sc.max - i)).filter(v => Number(v) >= sc.min);
+    return '<option value="">None</option>' + vals.map(v => '<option value="' + L.esc(v) + '"' + (String(current) === v ? ' selected' : '') + '>' + L.esc(v) + '</option>').join('');
+  }
 
   function taskRow(t) {
     const c = L.countdown(t.due);
@@ -155,11 +198,13 @@
     $('statOpen').textContent = openT.length;
     $('statExams').textContent = openT.filter(t => t.type === 'exam' && L.daysUntil(t.due) >= 0 && L.daysUntil(t.due) <= 7).length;
     const bySubj = {};
-    s.grades.forEach(g => (bySubj[g.subject] = bySubj[g.subject] || []).push(g));
+    const onScale = s.grades.filter(g => g.scale === s.scale);
+    const otherScale = s.grades.length - onScale.length;
+    onScale.forEach(g => (bySubj[g.subject] = bySubj[g.subject] || []).push(g));
     const subjAvgs = Object.keys(bySubj).map(k => avg(bySubj[k])).filter(v => v != null);
     const overall = subjAvgs.length ? subjAvgs.reduce((a, b) => a + b, 0) / subjAvgs.length : null;
-    $('statAvg').textContent = fmtG(overall);
-    $('statAvg').style.color = overall == null ? '' : overall >= sc.pass ? 'var(--success)' : 'var(--danger)';
+    $('statAvg').textContent = show(overall, sc);
+    $('statAvg').style.color = overall == null ? '' : cmpVal(overall, sc) >= sc.pass ? 'var(--success)' : 'var(--danger)';
 
     // Tasks
     $('taskList').innerHTML = openT.map(taskRow).join('');
@@ -171,21 +216,38 @@
 
     // Grades
     $('scaleSel').value = s.scale;
+    $('gradeValue').hidden = !!sc.letters; $('gradeLetter').hidden = !sc.letters;
+    $('gradeLetter').innerHTML = '<option value="">Grade</option>' + LETTERS.map(l => '<option value="' + l[0] + '">' + l[0] + '</option>').join('');
+    $('gradeValue').placeholder = sc.min + '–' + sc.max;
+    $('gradeHint').textContent = (sc.letters
+      ? 'A-level grades are averaged with UCAS points (A*=56, A=48, B=40, C=32, D=24, E=16, U=0) and shown as the nearest letter. E or above is a pass. '
+      : '') + 'Averages are weighted: leave weight empty for 1, or use 2 for an exam that counts double.'
+      + (otherScale ? ' ' + otherScale + (otherScale === 1 ? ' grade' : ' grades') + ' entered on another scale ' + (otherScale === 1 ? 'is' : 'are') + ' hidden.' : '');
+    // Subjects with a target but no grades yet still get a row.
+    Object.keys(s.targets).forEach(n => { if (targetFor(s, n) != null && !bySubj[n]) bySubj[n] = []; });
     const names = Object.keys(bySubj).sort((a, b) => a.localeCompare(b));
     $('gradeEmpty').hidden = names.length > 0;
     $('subjList').innerHTML = names.map(name => {
       const list = bySubj[name].slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
       const a = avg(list);
-      const pct = Math.max(0, Math.min(100, ((a - sc.min) / (sc.max - sc.min)) * 100));
+      const tgt = targetFor(s, name);
+      const val = a == null ? null : cmpVal(a, sc);
+      // Colour: vs target when set, otherwise pass/fail.
+      const good = val == null ? null : tgt != null ? val >= targetPoints(tgt, sc) : val >= sc.pass;
+      const pct = a == null ? 0 : Math.max(0, Math.min(100, ((a - sc.min) / (sc.max - sc.min)) * 100));
+      const meta = [list.length + (list.length === 1 ? ' grade' : ' grades')];
+      if (sc.letters && a != null) meta.push(Math.round(a * 10) / 10 + ' UCAS pts');
+      meta.push(tgt != null ? 'target ' + tgt + (good == null ? '' : good ? ' ✓' : ' ✗') : 'pass ' + (sc.letters ? 'E' : sc.pass));
       return '<div class="subj-row' + (open[name] ? ' open' : '') + '" data-subj="' + L.esc(name) + '">'
-        + '<div class="subj-head"><span class="subj-name">' + L.esc(name) + '</span><span class="subj-avg ' + (a >= sc.pass ? 'pass' : 'fail') + '">' + fmtG(a) + '</span></div>'
-        + '<div class="subj-meta">' + list.length + (list.length === 1 ? ' grade' : ' grades') + ' · pass ' + sc.pass + '</div>'
-        + '<div class="bar' + (a >= sc.pass ? ' full' : '') + '"><span style="width:' + pct.toFixed(1) + '%"></span></div>'
+        + '<div class="subj-head"><span class="subj-name">' + L.esc(name) + '</span><span class="subj-avg ' + (good == null ? '' : good ? 'pass' : 'fail') + '">' + show(a, sc) + '</span></div>'
+        + '<div class="subj-meta">' + L.esc(meta.join(' · ')) + '</div>'
+        + '<div class="bar' + (good ? ' full' : '') + '"><span style="width:' + pct.toFixed(1) + '%"></span></div>'
         + '<ul class="subj-grades">' + list.map(g =>
-            '<li><span class="g">' + fmtG(Number(g.grade)) + '</span><span class="l">' + L.esc(g.label || '—') + '</span>'
+            '<li><span class="g">' + L.esc(sc.letters ? (g.letter || toLetter(Number(g.grade))) : fmtG(Number(g.grade))) + '</span><span class="l">' + L.esc(g.label || '—') + '</span>'
             + '<span class="w">×' + (Number(g.weight) || 1) + (g.date ? ' · ' + L.fmtDay(g.date) : '') + '</span>'
-            + '<button class="row-del" data-gdel="' + g.id + '" aria-label="Delete grade" type="button">×</button></li>').join('') + '</ul>'
-        + '</div>';
+            + '<button class="row-del" data-gdel="' + g.id + '" aria-label="Delete grade" type="button">×</button></li>').join('')
+        + '<li class="subj-target"><span>Target grade</span><select class="gm-select" data-target="' + L.esc(name) + '" aria-label="Target grade for ' + L.esc(name) + '">' + targetOptions(sc, tgt == null ? '' : tgt) + '</select></li>'
+        + '</ul></div>';
     }).join('');
 
     $('subjectList').innerHTML = subjects(s).map(n => '<option value="' + L.esc(n) + '">').join('');
@@ -202,6 +264,14 @@
     $('taskTitle').value = ''; $('taskTitle').focus();
   });
   document.addEventListener('change', e => {
+    const subj = e.target.dataset && e.target.dataset.target;
+    if (subj != null) {
+      const s = state();
+      if (e.target.value === '') delete s.targets[subj];
+      else s.targets[subj] = { scale: s.scale, value: e.target.value };
+      open[subj] = true;
+      put(s); return;
+    }
     const id = e.target.dataset && e.target.dataset.done;
     if (!id) return;
     const s = state(); const t = s.tasks.find(x => x.id === id);
@@ -219,17 +289,28 @@
   $('gradeForm').addEventListener('submit', e => {
     e.preventDefault();
     const s = state(), sc = SCALES[s.scale];
-    const subject = $('gradeSubject').value.trim(), grade = parseFloat(String($('gradeValue').value).replace(',', '.'));
-    if (!subject || isNaN(grade)) return;
-    if (grade < sc.min || grade > sc.max) { $('gradeValue').setCustomValidity('Use ' + sc.min + '–' + sc.max); $('gradeValue').reportValidity(); return; }
+    const subject = $('gradeSubject').value.trim();
+    if (!subject) return;
+    let grade, letter = null;
+    if (sc.letters) {
+      letter = $('gradeLetter').value;
+      if (!(letter in UCAS)) { $('gradeLetter').focus(); return; }
+      grade = UCAS[letter];
+    } else {
+      grade = parseFloat(String($('gradeValue').value).replace(',', '.'));
+      if (isNaN(grade)) { $('gradeValue').focus(); return; }
+      if (grade < sc.min || grade > sc.max) { $('gradeValue').setCustomValidity('Use ' + sc.min + '–' + sc.max); $('gradeValue').reportValidity(); return; }
+    }
     const weight = parseFloat(String($('gradeWeight').value).replace(',', '.'));
-    s.grades.push({ id: L.uid('g'), subject, grade, weight: weight > 0 ? weight : 1, label: $('gradeLabel').value.trim(), date: L.dayKey() });
+    const g = { id: L.uid('g'), subject, grade, scale: s.scale, weight: weight > 0 ? weight : 1, label: $('gradeLabel').value.trim(), date: L.dayKey() };
+    if (letter) g.letter = letter;
+    s.grades.push(g);
     open[subject] = true;
     put(s);
-    $('gradeValue').value = ''; $('gradeWeight').value = ''; $('gradeLabel').value = '';
+    $('gradeValue').value = ''; $('gradeLetter').value = ''; $('gradeWeight').value = ''; $('gradeLabel').value = '';
   });
   $('gradeValue').addEventListener('input', () => $('gradeValue').setCustomValidity(''));
-  $('scaleSel').addEventListener('change', () => { const s = state(); s.scale = $('scaleSel').value; put(s); });
+  $('scaleSel').addEventListener('change', () => { const s = state(); s.scale = $('scaleSel').value; s.scaleChosen = true; put(s); });
 
   $('taskDue').value = L.dayKey(new Date(Date.now() + 7 * L.DAY));
   render();
