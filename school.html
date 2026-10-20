@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script src="lock.js"></script>
+<script src="/api/config"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#050506">
+<title>School</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="sync.js" defer></script>
+<script src="topbar.js" defer></script>
+<link rel="stylesheet" href="life.css">
+<style>
+:root { --accent: #F9A8D4; }
+.subj-row { padding: 12px 14px; margin-bottom: 6px; border-radius: 12px; background: rgba(255,255,255,0.035); border: 1px solid rgba(255,255,255,0.06); }
+.subj-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; cursor: pointer; }
+.subj-name { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+.subj-avg { font-family: var(--font-mono); font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.subj-avg.pass { color: var(--success); }
+.subj-avg.fail { color: var(--danger); }
+.subj-meta { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-tertiary); margin: 4px 0 8px; }
+.subj-grades { list-style: none; margin: 10px 0 0; padding: 0; display: none; }
+.subj-row.open .subj-grades { display: block; }
+.subj-grades li { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-top: 1px solid rgba(255,255,255,0.05); font-size: 13px; }
+.subj-grades li .g { font-family: var(--font-mono); font-weight: 700; color: var(--text-primary); width: 44px; }
+.subj-grades li .l { flex: 1; min-width: 0; color: var(--text-secondary); overflow-wrap: anywhere; }
+.subj-grades li .w { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-tertiary); }
+.done-toggle { margin-top: 8px; background: none; border: 0; color: var(--text-tertiary); font-family: inherit; font-size: 12px; cursor: pointer; padding: 6px 0; }
+.scale-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+<div class="page">
+  <a class="back-link" href="index.html">← Home</a>
+  <h1 class="dash-title">School</h1>
+
+  <div class="section">
+    <div class="section-title">Overview</div>
+    <div class="gm-card">
+      <div class="gm-header">
+        <div>
+          <div class="gm-eyebrow">Next deadline</div>
+          <div class="gm-progress-row"><span class="gm-progress-num" id="nextNum">—</span><span class="gm-progress-label" id="nextLabel"></span></div>
+          <div class="row-meta" id="nextTitle" style="margin-top:6px"></div>
+        </div>
+      </div>
+      <div class="stat-grid">
+        <div class="stat"><div class="stat-num" id="statOpen">0</div><div class="stat-label">Open tasks</div></div>
+        <div class="stat"><div class="stat-num" id="statExams">0</div><div class="stat-label">Exams in 7 days</div></div>
+        <div class="stat"><div class="stat-num" id="statAvg">—</div><div class="stat-label">Average grade</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Tasks &amp; exams</div>
+    <div class="gm-card">
+      <ul class="list" id="taskList"></ul>
+      <div class="empty-state" id="taskEmpty">No upcoming tasks or exams. Add one below.</div>
+      <button class="done-toggle" id="doneToggle" type="button" hidden></button>
+      <ul class="list" id="doneList" hidden></ul>
+      <form class="form" id="taskForm" autocomplete="off">
+        <input class="gm-input" id="taskTitle" placeholder="What's due? e.g. Chapter 4 exercises" required>
+        <select class="gm-select" id="taskType" aria-label="Type"><option value="task">Task</option><option value="exam">Exam</option></select>
+        <input class="gm-input" id="taskSubject" placeholder="Subject" list="subjectList">
+        <input class="gm-input" id="taskDue" type="date" required aria-label="Due date">
+        <button class="gm-add" type="submit">Add</button>
+      </form>
+      <div class="hint">Countdowns turn amber within a week and red at 2 days or less.</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Grades</div>
+    <div class="gm-card">
+      <div class="scale-row">
+        <span class="gm-eyebrow" style="margin:0">Per subject · tap to see grades</span>
+        <select class="gm-select" id="scaleSel" aria-label="Grading scale">
+          <option value="6">Scale 1–6</option>
+          <option value="10">Scale 0–10</option>
+          <option value="20">Scale 0–20</option>
+          <option value="100">Scale 0–100</option>
+        </select>
+      </div>
+      <div id="subjList"></div>
+      <div class="empty-state" id="gradeEmpty">No grades yet.</div>
+      <form class="form" id="gradeForm" autocomplete="off">
+        <input class="gm-input" id="gradeSubject" placeholder="Subject" list="subjectList" required>
+        <input class="gm-input num" id="gradeValue" type="number" step="0.01" inputmode="decimal" placeholder="Grade" required>
+        <input class="gm-input num" id="gradeWeight" type="number" step="0.1" min="0.1" inputmode="decimal" placeholder="Weight 1">
+        <input class="gm-input" id="gradeLabel" placeholder="What for? (optional)">
+        <button class="gm-add" type="submit">Add</button>
+      </form>
+      <div class="hint">Averages are weighted. Leave weight empty for 1 (use 2 for an exam that counts double).</div>
+    </div>
+  </div>
+  <datalist id="subjectList"></datalist>
+</div>
+
+<script src="life.js"></script>
+<script>
+(function () {
+  'use strict';
+  const L = window.Life, $ = id => document.getElementById(id);
+  const KEY = 'school_v1';
+  const SCALES = { '6': { min: 1, max: 6, pass: 4 }, '10': { min: 0, max: 10, pass: 5 }, '20': { min: 0, max: 20, pass: 10 }, '100': { min: 0, max: 100, pass: 50 } };
+  let showDone = false;
+  const open = {};
+
+  function state() {
+    const s = L.load(KEY, {});
+    return { tasks: Array.isArray(s.tasks) ? s.tasks : [], grades: Array.isArray(s.grades) ? s.grades : [], scale: SCALES[s.scale] ? s.scale : '10' };
+  }
+  function put(s) { L.save(KEY, s); render(); }
+
+  function subjects(s) {
+    const set = new Set();
+    s.tasks.forEach(t => t.subject && set.add(t.subject));
+    s.grades.forEach(g => g.subject && set.add(g.subject));
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }
+  function avg(list) {
+    const w = list.reduce((a, g) => a + (Number(g.weight) || 1), 0);
+    return w ? list.reduce((a, g) => a + Number(g.grade) * (Number(g.weight) || 1), 0) / w : null;
+  }
+  function fmtG(v) { return v == null ? '—' : (Math.round(v * 100) / 100).toString(); }
+
+  function taskRow(t) {
+    const c = L.countdown(t.due);
+    return '<li class="gm-row' + (t.done ? ' done' : '') + '">'
+      + '<input type="checkbox" class="gm-check" data-done="' + t.id + '"' + (t.done ? ' checked' : '') + ' aria-label="Done">'
+      + '<div class="row-main"><div class="row-title"><span class="tag' + (t.type === 'exam' ? ' exam' : '') + '">' + (t.type === 'exam' ? 'Exam' : 'Task') + '</span>' + L.esc(t.title) + '</div>'
+      + '<div class="row-meta">' + (t.subject ? L.esc(t.subject) + ' · ' : '') + L.fmtDay(t.due) + '</div></div>'
+      + (t.done ? '' : '<span class="due ' + c.cls + '">' + c.label + '</span>')
+      + '<button class="row-del" data-del="' + t.id + '" aria-label="Delete" type="button">×</button></li>';
+  }
+
+  function render() {
+    const s = state(), sc = SCALES[s.scale];
+    const openT = s.tasks.filter(t => !t.done).sort((a, b) => a.due.localeCompare(b.due) || (a.type === 'exam' ? -1 : 1));
+    const doneT = s.tasks.filter(t => t.done).sort((a, b) => b.due.localeCompare(a.due));
+
+    // Overview
+    const next = openT[0];
+    if (next) {
+      const c = L.countdown(next.due);
+      $('nextNum').textContent = c.n < 0 ? 'Late' : c.n === 0 ? 'Today' : c.n === 1 ? '1 day' : c.n + ' days';
+      $('nextNum').style.color = c.cls === 'urgent' ? 'var(--danger)' : '';
+      $('nextLabel').textContent = '';
+      $('nextTitle').textContent = (next.type === 'exam' ? 'Exam · ' : '') + next.title + (next.subject ? ' · ' + next.subject : '');
+    } else {
+      $('nextNum').textContent = '—'; $('nextNum').style.color = ''; $('nextTitle').textContent = 'Nothing due';
+    }
+    $('statOpen').textContent = openT.length;
+    $('statExams').textContent = openT.filter(t => t.type === 'exam' && L.daysUntil(t.due) >= 0 && L.daysUntil(t.due) <= 7).length;
+    const bySubj = {};
+    s.grades.forEach(g => (bySubj[g.subject] = bySubj[g.subject] || []).push(g));
+    const subjAvgs = Object.keys(bySubj).map(k => avg(bySubj[k])).filter(v => v != null);
+    const overall = subjAvgs.length ? subjAvgs.reduce((a, b) => a + b, 0) / subjAvgs.length : null;
+    $('statAvg').textContent = fmtG(overall);
+    $('statAvg').style.color = overall == null ? '' : overall >= sc.pass ? 'var(--success)' : 'var(--danger)';
+
+    // Tasks
+    $('taskList').innerHTML = openT.map(taskRow).join('');
+    $('taskEmpty').hidden = openT.length > 0;
+    $('doneToggle').hidden = !doneT.length;
+    $('doneToggle').textContent = (showDone ? '▾ Hide done' : '▸ Show done') + ' (' + doneT.length + ')';
+    $('doneList').hidden = !showDone;
+    $('doneList').innerHTML = showDone ? doneT.map(taskRow).join('') : '';
+
+    // Grades
+    $('scaleSel').value = s.scale;
+    const names = Object.keys(bySubj).sort((a, b) => a.localeCompare(b));
+    $('gradeEmpty').hidden = names.length > 0;
+    $('subjList').innerHTML = names.map(name => {
+      const list = bySubj[name].slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+      const a = avg(list);
+      const pct = Math.max(0, Math.min(100, ((a - sc.min) / (sc.max - sc.min)) * 100));
+      return '<div class="subj-row' + (open[name] ? ' open' : '') + '" data-subj="' + L.esc(name) + '">'
+        + '<div class="subj-head"><span class="subj-name">' + L.esc(name) + '</span><span class="subj-avg ' + (a >= sc.pass ? 'pass' : 'fail') + '">' + fmtG(a) + '</span></div>'
+        + '<div class="subj-meta">' + list.length + (list.length === 1 ? ' grade' : ' grades') + ' · pass ' + sc.pass + '</div>'
+        + '<div class="bar' + (a >= sc.pass ? ' full' : '') + '"><span style="width:' + pct.toFixed(1) + '%"></span></div>'
+        + '<ul class="subj-grades">' + list.map(g =>
+            '<li><span class="g">' + fmtG(Number(g.grade)) + '</span><span class="l">' + L.esc(g.label || '—') + '</span>'
+            + '<span class="w">×' + (Number(g.weight) || 1) + (g.date ? ' · ' + L.fmtDay(g.date) : '') + '</span>'
+            + '<button class="row-del" data-gdel="' + g.id + '" aria-label="Delete grade" type="button">×</button></li>').join('') + '</ul>'
+        + '</div>';
+    }).join('');
+
+    $('subjectList').innerHTML = subjects(s).map(n => '<option value="' + L.esc(n) + '">').join('');
+  }
+
+  // ---- events ----
+  $('taskForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const title = $('taskTitle').value.trim(), due = $('taskDue').value;
+    if (!title || !due) return;
+    const s = state();
+    s.tasks.push({ id: L.uid('t'), title, type: $('taskType').value, subject: $('taskSubject').value.trim(), due, done: false });
+    put(s);
+    $('taskTitle').value = ''; $('taskTitle').focus();
+  });
+  document.addEventListener('change', e => {
+    const id = e.target.dataset && e.target.dataset.done;
+    if (!id) return;
+    const s = state(); const t = s.tasks.find(x => x.id === id);
+    if (t) { t.done = e.target.checked; put(s); }
+  });
+  document.addEventListener('click', e => {
+    const d = e.target.closest('[data-del]');
+    if (d) { const s = state(); s.tasks = s.tasks.filter(x => x.id !== d.dataset.del); put(s); return; }
+    const gd = e.target.closest('[data-gdel]');
+    if (gd) { const s = state(); s.grades = s.grades.filter(x => x.id !== gd.dataset.gdel); put(s); return; }
+    const head = e.target.closest('.subj-head');
+    if (head) { const n = head.parentElement.dataset.subj; open[n] = !open[n]; render(); }
+  });
+  $('doneToggle').addEventListener('click', () => { showDone = !showDone; render(); });
+  $('gradeForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const s = state(), sc = SCALES[s.scale];
+    const subject = $('gradeSubject').value.trim(), grade = parseFloat(String($('gradeValue').value).replace(',', '.'));
+    if (!subject || isNaN(grade)) return;
+    if (grade < sc.min || grade > sc.max) { $('gradeValue').setCustomValidity('Use ' + sc.min + '–' + sc.max); $('gradeValue').reportValidity(); return; }
+    const weight = parseFloat(String($('gradeWeight').value).replace(',', '.'));
+    s.grades.push({ id: L.uid('g'), subject, grade, weight: weight > 0 ? weight : 1, label: $('gradeLabel').value.trim(), date: L.dayKey() });
+    open[subject] = true;
+    put(s);
+    $('gradeValue').value = ''; $('gradeWeight').value = ''; $('gradeLabel').value = '';
+  });
+  $('gradeValue').addEventListener('input', () => $('gradeValue').setCustomValidity(''));
+  $('scaleSel').addEventListener('change', () => { const s = state(); s.scale = $('scaleSel').value; put(s); });
+
+  $('taskDue').value = L.dayKey(new Date(Date.now() + 7 * L.DAY));
+  render();
+  // Countdowns roll over at midnight.
+  setInterval(render, 60 * 1000);
+  L.sync('school', [KEY], render);
+})();
+</script>
+</body>
+</html>

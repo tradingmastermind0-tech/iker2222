@@ -110,6 +110,29 @@ body::after {
   filter: drop-shadow(0 0 10px color-mix(in srgb, var(--accent) 60%, transparent));
 }
 .tile-spacer { flex: 1; }
+/* Key number for each area (top-left of the tile) */
+.tile-kpi { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.tile-kpi b {
+  font-family: var(--font-mono); font-size: 18px; font-weight: 700; letter-spacing: -0.01em;
+  color: var(--text-primary); font-variant-numeric: tabular-nums; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.tile.big .tile-kpi b { font-size: 26px; }
+.tile-kpi small {
+  font-size: 9.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+}
+.tile-kpi.urgent b { color: #FF6B6B; }
+.tile-kpi.good b { color: #6BE3A4; }
+.tile-kpi.loading b { color: var(--text-tertiary); }
+.tile-bar { height: 4px; border-radius: 999px; background: rgba(255,255,255,0.07); overflow: hidden; margin-top: 6px; width: 110px; max-width: 100%; }
+.tile-bar span { display: block; height: 100%; width: 0; background: var(--accent); border-radius: 999px; transition: width 0.4s ease; }
+.section-title {
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--text-tertiary); display: flex; align-items: center; gap: 12px; margin: 0 0 12px;
+}
+.section-title::before { content: ''; width: 18px; height: 1px; background: var(--text-tertiary); opacity: 0.6; }
+.section-title::after { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg, rgba(255,255,255,0.08), transparent); }
 .tile-title {
   font-size: 22px; font-weight: 700; letter-spacing: -0.02em;
   color: var(--text-primary); margin: 0 0 4px;
@@ -219,12 +242,13 @@ body::after {
     </button>
   </div>
 
+  <div class="section-title">Life overview</div>
   <div class="bento">
 
     <!-- Big tile -->
     <a class="tile big" href="main.html" style="--accent:#6BE3A4">
       <div class="tile-top">
-        <span class="tile-num">·01</span>
+        <span class="tile-kpi loading" data-kpi="main"><b>—</b><small>goals today</small></span>
         <span class="tile-emoji">🏠</span>
       </div>
       <div class="tile-spacer"></div>
@@ -238,7 +262,7 @@ body::after {
     <!-- Wide tile -->
     <a class="tile wide" href="gym.html" style="--accent:#7DD3FC">
       <div class="tile-top">
-        <span class="tile-num">·02</span>
+        <span class="tile-kpi loading" data-kpi="gym"><b>—</b><small>sessions this week</small></span>
         <span class="tile-emoji">💪</span>
       </div>
       <div class="tile-spacer"></div>
@@ -252,7 +276,7 @@ body::after {
     <!-- Small tile -->
     <a class="tile" href="health.html" style="--accent:#A7F3D0">
       <div class="tile-top">
-        <span class="tile-num">·03</span>
+        <span class="tile-kpi loading" data-kpi="health"><b>—</b><small>supplements today</small></span>
         <span class="tile-emoji">💊</span>
       </div>
       <div class="tile-spacer"></div>
@@ -266,7 +290,7 @@ body::after {
     <!-- Small tile -->
     <a class="tile" href="po-water.html" style="--accent:#60A5FA">
       <div class="tile-top">
-        <span class="tile-num">·04</span>
+        <span class="tile-kpi loading" data-kpi="water"><b>—</b><small>drinks today</small></span>
         <span class="tile-emoji">💧</span>
       </div>
       <div class="tile-spacer"></div>
@@ -280,7 +304,7 @@ body::after {
     <!-- Wide tile -->
     <a class="tile wide" href="finance.html" style="--accent:#F2C063">
       <div class="tile-top">
-        <span class="tile-num">·05</span>
+        <span class="tile-kpi loading" data-kpi="finance"><b>—</b><small>net worth</small></span>
         <span class="tile-emoji">📊</span>
       </div>
       <div class="tile-spacer"></div>
@@ -294,13 +318,55 @@ body::after {
     <!-- Small tile -->
     <a class="tile" href="caffeine.html" style="--accent:#C9A36B">
       <div class="tile-top">
-        <span class="tile-num">·06</span>
+        <span class="tile-kpi loading" data-kpi="caffeine"><b>—</b><small>caffeine today</small></span>
         <span class="tile-emoji">☕</span>
       </div>
       <div class="tile-spacer"></div>
       <h2 class="tile-title">Caffeine</h2>
       <div class="tile-foot">
         <span class="tile-sub">Intake & timing</span>
+        <span class="tile-arrow">→</span>
+      </div>
+    </a>
+
+    <!-- School -->
+    <a class="tile wide" href="school.html" style="--accent:#F9A8D4">
+      <div class="tile-top">
+        <span class="tile-kpi loading" data-kpi="school"><b>—</b><small>next deadline</small></span>
+        <span class="tile-emoji">📚</span>
+      </div>
+      <div class="tile-spacer"></div>
+      <h2 class="tile-title">School</h2>
+      <div class="tile-foot">
+        <span class="tile-sub" data-kpi-sub="school">Tasks, exams &amp; grades</span>
+        <span class="tile-arrow">→</span>
+      </div>
+    </a>
+
+    <!-- Skills -->
+    <a class="tile" href="skills.html" style="--accent:#C084FC">
+      <div class="tile-top">
+        <span class="tile-kpi loading" data-kpi="skills"><b>—</b><small>this week</small><span class="tile-bar"><span></span></span></span>
+        <span class="tile-emoji">⚡</span>
+      </div>
+      <div class="tile-spacer"></div>
+      <h2 class="tile-title">Skills</h2>
+      <div class="tile-foot">
+        <span class="tile-sub">Study time</span>
+        <span class="tile-arrow">→</span>
+      </div>
+    </a>
+
+    <!-- Goals -->
+    <a class="tile" href="goals.html" style="--accent:#FB923C">
+      <div class="tile-top">
+        <span class="tile-kpi loading" data-kpi="lifegoals"><b>—</b><small>weekly goals</small><span class="tile-bar"><span></span></span></span>
+        <span class="tile-emoji">🎯</span>
+      </div>
+      <div class="tile-spacer"></div>
+      <h2 class="tile-title">Goals</h2>
+      <div class="tile-foot">
+        <span class="tile-sub">Weekly &amp; monthly</span>
         <span class="tile-arrow">→</span>
       </div>
     </a>
@@ -392,6 +458,145 @@ body::after {
   </div>
 </div>
 
+<script src="life.js"></script>
+<script>
+// ============================================================
+// LIFE OVERVIEW — one key number per tile. Reads each area's synced
+// row from Supabase (read-only, never writes) so the numbers match on
+// every device; falls back to this browser's copy when offline.
+// ============================================================
+(function () {
+  'use strict';
+  const L = window.Life;
+  // Supabase row (app_state.key) for each storage key we read.
+  const ROWS = ['goals', 'health', 'caffeine', 'po-coach', 'finance', 'school', 'skills', 'life-goals'];
+  let remote = {};   // merged data from all rows: storageKey → value
+
+  function get(key, fallback) {
+    if (Object.prototype.hasOwnProperty.call(remote, key)) return remote[key];
+    return L.load(key, fallback);
+  }
+  // Same day boundary the top bar uses (the day starts at 6 AM).
+  function activeDateKey() { const d = new Date(); if (d.getHours() < 6) d.setDate(d.getDate() - 1); return L.dayKey(d); }
+
+  function set(name, value, label, opts) {
+    const el = document.querySelector('[data-kpi="' + name + '"]');
+    if (!el) return;
+    opts = opts || {};
+    el.classList.remove('loading', 'urgent', 'good');
+    if (opts.cls) el.classList.add(opts.cls);
+    el.querySelector('b').textContent = value;
+    if (label != null) el.querySelector('small').textContent = label;
+    const bar = el.querySelector('.tile-bar span');
+    if (bar && opts.pct != null) bar.style.width = Math.max(0, Math.min(100, opts.pct)).toFixed(1) + '%';
+  }
+
+  function waterGoal(state) {
+    const p = state.profile || { weightKg: 75 };
+    const wKg = state.weightUnit === 'lb' ? (p.weightKg || 0) / 2.20462 : (p.weightKg || 0);
+    const subs = (state.substances || []).reduce((s, x) => s + Math.max(0, ((x && (x.dose != null ? x.dose : x.defaultDose)) || 0) * ((x && x.mlPerUnit) || 0)), 0);
+    const ml = wKg * 35 + (p.activityHrsPerWeek || 0) / 7 * 500 + Math.max(0, (state.caffeineMgPerDay || 0) - 200) * 1.5 + subs
+      + (p.sex === 'm' ? 200 : 0) + ((p.age || 0) >= 50 ? 100 : 0);
+    const unit = state.unit === 'glass' ? (state.glassMl || 250) : state.unit === 'oz' ? 30 : state.unit === 'ml' ? 1 : (state.bottleMl || 500);
+    return Math.max(1, Math.ceil(ml / unit));
+  }
+
+  let rates = null;
+  async function loadRates() {
+    try { const r = await fetch('https://open.er-api.com/v6/latest/CHF'); const d = await r.json(); if (d && d.rates) { rates = d.rates; render(); } } catch (e) {}
+  }
+
+  function render() {
+    // Main — today's goals
+    const goals = get('goals:' + activeDateKey(), []);
+    const gt = Array.isArray(goals) ? goals.length : 0, gd = gt ? goals.filter(g => g && g.done).length : 0;
+    set('main', gt ? gd + '/' + gt : '—', gt ? 'goals today' : 'no goals today', { cls: gt && gd === gt ? 'good' : '' });
+
+    // Fitness — distinct workout days this week
+    const po = get('po_coach_v1', null);
+    const days = new Set();
+    if (po && po.logs) Object.values(po.logs).forEach(arr => (arr || []).forEach(l => { const k = L.dayKey(new Date(l.date)); if (L.inThisWeek(k)) days.add(k); }));
+    set('gym', String(days.size), days.size === 1 ? 'session this week' : 'sessions this week');
+
+    // Health — supplements taken today
+    const items = get('stack:items', []), taken = get('stack:taken:' + activeDateKey(), {}) || {};
+    const st = Array.isArray(items) ? items.length : 0, sd = st ? items.filter(i => i && taken[i.id]).length : 0;
+    set('health', st ? sd + '/' + st : '—', st ? 'supplements today' : 'no stack set up', { cls: st && sd === st ? 'good' : '' });
+
+    // Water — drinks today vs goal
+    const w = get('po_water_v1', null);
+    if (w) {
+      const done = (w.logs || {})[L.dayKey()] || 0, goal = waterGoal(w);
+      set('water', done + '/' + goal, 'drinks today', { cls: done >= goal ? 'good' : '' });
+    } else set('water', '—', 'not set up');
+
+    // Finance — net worth in the chosen currency
+    let chf = 0, any = false;
+    ['bank', 'stocks', 'crypto', 'other'].forEach(c => (get('nw:' + c, []) || []).forEach(it => { any = true; chf += Number(it && it.amount) || 0; }));
+    const cur = get('nw_currency', 'CHF') || 'CHF';
+    const rate = cur === 'CHF' ? 1 : (rates && rates[cur]) || null;
+    const shownCur = rate ? cur : 'CHF';
+    const val = chf * (rate || 1);
+    set('finance', any ? shownCur + ' ' + Math.round(val).toLocaleString('en-US') : '—', any ? 'net worth' : 'no accounts yet');
+
+    // Caffeine — mg today
+    const caf = get('caf:logs', []);
+    const today = L.dayKey();
+    const mg = (Array.isArray(caf) ? caf : []).filter(l => l && L.dayKey(new Date(l.ts)) === today).reduce((a, l) => a + (Number(l.mg) || 0), 0);
+    set('caffeine', mg + ' mg', 'caffeine today');
+
+    // School — nearest open deadline
+    const school = get('school_v1', {}) || {};
+    const open = (school.tasks || []).filter(t => t && !t.done && t.due).sort((a, b) => a.due.localeCompare(b.due));
+    const sub = document.querySelector('[data-kpi-sub="school"]');
+    if (open.length) {
+      const c = L.countdown(open[0].due);
+      set('school', c.label, (open[0].type === 'exam' ? 'exam · ' : '') + open[0].title, { cls: c.cls === 'urgent' ? 'urgent' : '' });
+      if (sub) sub.textContent = open.length + (open.length === 1 ? ' open task or exam' : ' open tasks & exams');
+    } else {
+      set('school', '—', 'nothing due');
+      if (sub) sub.textContent = 'Tasks, exams & grades';
+    }
+
+    // Skills — minutes this week vs weekly goal
+    const sk = get('skills_v1', null);
+    const skills = sk && Array.isArray(sk.skills) ? sk.skills : [{ goal: 180 }, { goal: 180 }, { goal: 180 }];
+    const logs = sk && Array.isArray(sk.logs) ? sk.logs : [];
+    const ids = new Set(skills.map(x => x.id));
+    const mins = logs.filter(l => l && L.inThisWeek(l.date) && (!sk || ids.has(l.skillId))).reduce((a, l) => a + (Number(l.min) || 0), 0);
+    const goalMin = skills.reduce((a, x) => a + (Number(x.goal) || 0), 0);
+    set('skills', L.fmtMin(mins), 'of ' + L.fmtMin(goalMin) + ' this week', { pct: goalMin ? mins / goalMin * 100 : 0, cls: goalMin && mins >= goalMin ? 'good' : '' });
+
+    // Goals — this week's goals done
+    const lg = get('lifegoals_v1', {}) || {};
+    const wk = (lg.goals || []).filter(g => g && g.period === 'week' && g.pkey === L.weekKey());
+    const wd = wk.filter(g => g.done).length;
+    set('lifegoals', wk.length ? wd + '/' + wk.length : '—', wk.length ? 'weekly goals' : 'no goals this week', { pct: wk.length ? wd / wk.length * 100 : 0, cls: wk.length && wd === wk.length ? 'good' : '' });
+  }
+
+  async function loadRemote() {
+    const url = window.DASH_SUPABASE_URL, key = window.DASH_SUPABASE_KEY;
+    if (!url || !key) return;
+    try {
+      const inList = ROWS.map(r => '"' + r + '"').join(',');
+      const r = await fetch(url.replace(/\/$/, '') + '/rest/v1/app_state?select=key,data&key=in.(' + encodeURIComponent(inList) + ')',
+        { headers: { apikey: key, Authorization: 'Bearer ' + key } });
+      if (!r.ok) return;
+      const rows = await r.json();
+      const merged = {};
+      (rows || []).forEach(row => { if (row && row.data && typeof row.data === 'object') Object.assign(merged, row.data); });
+      remote = merged;
+      render();
+    } catch (e) { /* keep the local numbers */ }
+  }
+
+  render();
+  loadRemote();
+  loadRates();
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { render(); loadRemote(); } });
+  window.addEventListener('storage', render);
+})();
+</script>
 <script>
 (function () {
   'use strict';

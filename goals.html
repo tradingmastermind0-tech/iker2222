@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script src="lock.js"></script>
+<script src="/api/config"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#050506">
+<title>Goals</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="sync.js" defer></script>
+<script src="topbar.js" defer></script>
+<link rel="stylesheet" href="life.css">
+<style>
+:root { --accent: #FB923C; }
+.goal { flex-direction: column; align-items: stretch; gap: 8px; }
+.goal-top { display: flex; align-items: center; gap: 12px; }
+.goal-count { font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary); white-space: nowrap; }
+.goal-bottom { display: flex; align-items: center; gap: 10px; padding-left: 34px; }
+.goal-bottom .bar { flex: 1; }
+.step { width: 28px; height: 28px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.10); background: rgba(255,255,255,0.04); color: var(--text-primary); font-size: 15px; line-height: 1; cursor: pointer; flex-shrink: 0; }
+.step:hover { background: rgba(255,255,255,0.08); }
+.step:disabled { opacity: 0.3; cursor: default; }
+.past-period { margin-bottom: 8px; }
+.past-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 13px; color: var(--text-secondary); padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05); cursor: pointer; }
+.past-head b { font-family: var(--font-mono); color: var(--text-primary); }
+.past-list { list-style: none; margin: 6px 0 0; padding: 0 0 0 4px; display: none; }
+.past-period.open .past-list { display: block; }
+.past-list li { font-size: 12.5px; padding: 4px 0; color: var(--text-tertiary); }
+.past-list li.ok { color: var(--text-secondary); }
+</style>
+</head>
+<body>
+<div class="page">
+  <a class="back-link" href="index.html">← Home</a>
+  <h1 class="dash-title">Goals</h1>
+
+  <div class="section">
+    <div class="section-title">Overview</div>
+    <div class="gm-card">
+      <div class="stat-grid">
+        <div class="stat"><div class="stat-num" id="weekStat">0/0</div><div class="stat-label" id="weekStatLabel">This week</div></div>
+        <div class="stat"><div class="stat-num" id="monthStat">0/0</div><div class="stat-label" id="monthStatLabel">This month</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Goals</div>
+    <div class="gm-card">
+      <div class="gm-header" style="margin-bottom:12px">
+        <div class="seg" id="periodSeg" role="tablist">
+          <button type="button" data-p="week" class="on">This week</button>
+          <button type="button" data-p="month">This month</button>
+        </div>
+        <span class="gm-streak" id="periodRange"></span>
+      </div>
+      <ul class="list" id="goalList"></ul>
+      <div class="empty-state" id="goalEmpty">No goals yet for this period.</div>
+      <form class="form" id="goalForm" autocomplete="off">
+        <input class="gm-input" id="goalTitle" placeholder="New goal, e.g. Gym 4 times" required>
+        <input class="gm-input num" id="goalTarget" type="number" min="1" step="1" inputmode="numeric" placeholder="Target">
+        <button class="gm-add" type="submit">Add</button>
+      </form>
+      <div class="hint">Leave target empty for a one-off goal. With a target (e.g. 4), use − / + to track it; it ticks itself when you reach it.</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Past</div>
+    <div class="gm-card">
+      <div id="pastList"></div>
+      <div class="empty-state" id="pastEmpty">Finished weeks and months will show up here.</div>
+    </div>
+  </div>
+</div>
+
+<script src="life.js"></script>
+<script>
+(function () {
+  'use strict';
+  const L = window.Life, $ = id => document.getElementById(id);
+  const KEY = 'lifegoals_v1';
+  let period = 'week';
+  const openPast = {};
+
+  function state() {
+    const s = L.load(KEY, {});
+    return { goals: Array.isArray(s.goals) ? s.goals : [] };
+  }
+  function put(s) { L.save(KEY, s); render(); }
+  function curKey(p) { return p === 'week' ? L.weekKey() : L.monthKey(); }
+  function periodName(p, k) {
+    if (p === 'month') { const [y, m] = k.split('-').map(Number); return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }); }
+    return 'Week of ' + L.fmtDay(k);
+  }
+  function target(g) { return Math.max(1, Number(g.target) || 1); }
+  function progress(g) { return g.done ? target(g) : Math.min(target(g), Number(g.progress) || 0); }
+  function tally(list) { return { done: list.filter(g => g.done).length, total: list.length }; }
+
+  function render() {
+    const s = state();
+    const wk = L.weekKey(), mk = L.monthKey();
+    const weekGoals = s.goals.filter(g => g.period === 'week' && g.pkey === wk);
+    const monthGoals = s.goals.filter(g => g.period === 'month' && g.pkey === mk);
+    const tw = tally(weekGoals), tm = tally(monthGoals);
+    $('weekStat').textContent = tw.done + '/' + tw.total;
+    $('monthStat').textContent = tm.done + '/' + tm.total;
+    $('weekStatLabel').textContent = 'Week of ' + L.fmtDay(wk);
+    $('monthStatLabel').textContent = periodName('month', mk);
+
+    document.querySelectorAll('#periodSeg button').forEach(b => b.classList.toggle('on', b.dataset.p === period));
+    $('periodRange').textContent = periodName(period, curKey(period));
+    const list = (period === 'week' ? weekGoals : monthGoals).slice().sort((a, b) => (a.done - b.done) || (a.created || 0) - (b.created || 0));
+    $('goalEmpty').hidden = list.length > 0;
+    $('goalList').innerHTML = list.map(g => {
+      const t = target(g), p = progress(g), pct = (p / t) * 100;
+      return '<li class="gm-row goal' + (g.done ? ' done' : '') + '">'
+        + '<div class="goal-top"><input type="checkbox" class="gm-check" data-toggle="' + g.id + '"' + (g.done ? ' checked' : '') + ' aria-label="Done">'
+        + '<div class="row-main"><div class="row-title">' + L.esc(g.title) + '</div></div>'
+        + '<span class="goal-count">' + (t > 1 ? p + '/' + t : (g.done ? 'done' : '')) + '</span>'
+        + '<button class="row-del" data-del="' + g.id + '" aria-label="Delete goal" type="button">×</button></div>'
+        + '<div class="goal-bottom">'
+        + (t > 1 ? '<button class="step" type="button" data-step="' + g.id + '" data-d="-1" aria-label="Less"' + (p <= 0 ? ' disabled' : '') + '>−</button>' : '')
+        + '<div class="bar' + (pct >= 100 ? ' full' : '') + '"><span style="width:' + pct.toFixed(1) + '%"></span></div>'
+        + (t > 1 ? '<button class="step" type="button" data-step="' + g.id + '" data-d="1" aria-label="More"' + (p >= t ? ' disabled' : '') + '>+</button>' : '')
+        + '</div></li>';
+    }).join('');
+
+    // Past periods, newest first (last 12).
+    const groups = {};
+    s.goals.forEach(g => {
+      if ((g.period === 'week' && g.pkey === wk) || (g.period === 'month' && g.pkey === mk)) return;
+      const k = g.period + ':' + g.pkey;
+      (groups[k] = groups[k] || { p: g.period, k: g.pkey, goals: [] }).goals.push(g);
+    });
+    const past = Object.values(groups).sort((a, b) => b.k.localeCompare(a.k) || (a.p === 'month' ? -1 : 1)).slice(0, 12);
+    $('pastEmpty').hidden = past.length > 0;
+    $('pastList').innerHTML = past.map(gr => {
+      const t = tally(gr.goals), id = gr.p + ':' + gr.k;
+      return '<div class="past-period' + (openPast[id] ? ' open' : '') + '" data-past="' + id + '">'
+        + '<div class="past-head"><span>' + L.esc(periodName(gr.p, gr.k)) + '</span><b>' + t.done + '/' + t.total + '</b></div>'
+        + '<ul class="past-list">' + gr.goals.map(g => '<li class="' + (g.done ? 'ok' : '') + '">' + (g.done ? '✓ ' : '· ') + L.esc(g.title)
+          + (target(g) > 1 ? ' (' + progress(g) + '/' + target(g) + ')' : '') + '</li>').join('') + '</ul></div>';
+    }).join('');
+  }
+
+  $('periodSeg').addEventListener('click', e => {
+    const b = e.target.closest('button[data-p]');
+    if (b) { period = b.dataset.p; render(); }
+  });
+  $('goalForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const title = $('goalTitle').value.trim();
+    if (!title) return;
+    const t = parseInt($('goalTarget').value, 10);
+    const s = state();
+    s.goals.push({ id: L.uid('gl'), title, period, pkey: curKey(period), target: t > 1 ? t : 1, progress: 0, done: false, created: Date.now() });
+    put(s);
+    $('goalTitle').value = ''; $('goalTarget').value = ''; $('goalTitle').focus();
+  });
+  document.addEventListener('change', e => {
+    const id = e.target.dataset && e.target.dataset.toggle;
+    if (!id) return;
+    const s = state(), g = s.goals.find(x => x.id === id);
+    if (!g) return;
+    g.done = e.target.checked;
+    if (g.done) g.progress = target(g);
+    else if ((Number(g.progress) || 0) >= target(g)) g.progress = target(g) > 1 ? target(g) - 1 : 0;
+    put(s);
+  });
+  document.addEventListener('click', e => {
+    const st = e.target.closest('[data-step]');
+    if (st) {
+      const s = state(), g = s.goals.find(x => x.id === st.dataset.step);
+      if (!g) return;
+      g.progress = Math.max(0, Math.min(target(g), progress(g) + Number(st.dataset.d)));
+      g.done = g.progress >= target(g);
+      put(s); return;
+    }
+    const d = e.target.closest('[data-del]');
+    if (d) { const s = state(); s.goals = s.goals.filter(x => x.id !== d.dataset.del); put(s); return; }
+    const ph = e.target.closest('.past-head');
+    if (ph) { const id = ph.parentElement.dataset.past; openPast[id] = !openPast[id]; render(); }
+  });
+
+  render();
+  setInterval(render, 60 * 1000); // roll over to a new week/month on its own
+  L.sync('life-goals', [KEY], render);
+})();
+</script>
+</body>
+</html>

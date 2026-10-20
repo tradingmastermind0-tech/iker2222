@@ -166,6 +166,9 @@
     { re: /\b(water|agua)\b/, url: 'health.html#water', en: 'water', es: 'el agua' },
     { re: /\b(health|salud|supplements?|suplementos?)\b/, url: 'health.html', en: 'health', es: 'salud' },
     { re: /\b(caffeine|cafe[ií]na|coffee|caf[eé])\b/, url: 'caffeine.html', en: 'caffeine', es: 'cafeína' },
+    { re: /\b(school|escuela|colegio|cole|instituto|homework|deberes|exams?|ex[aá]menes|grades|notas)\b/, url: 'school.html', en: 'school', es: 'el cole' },
+    { re: /\b(skills?|habilidades|study|estudio|estudiar)\b/, url: 'skills.html', en: 'skills', es: 'habilidades' },
+    { re: /\b(goals|weekly goals|monthly goals|objetivos|metas)\b/, url: 'goals.html', en: 'goals', es: 'objetivos' },
     { re: /\b(home|main|dashboard|inicio|principal)\b/, url: 'index.html', en: 'home', es: 'inicio' },
   ];
 

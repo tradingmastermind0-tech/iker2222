@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script src="lock.js"></script>
+<script src="/api/config"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#050506">
+<title>Skills</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="sync.js" defer></script>
+<script src="topbar.js" defer></script>
+<link rel="stylesheet" href="life.css">
+<style>
+:root { --accent: #C084FC; }
+.skill { padding: 14px; margin-bottom: 8px; border-radius: 12px; background: rgba(255,255,255,0.035); border: 1px solid rgba(255,255,255,0.06); }
+.skill-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.skill-name { font-size: 15px; font-weight: 600; color: var(--text-primary); }
+.skill-val { font-family: var(--font-mono); font-size: 13px; color: var(--text-secondary); white-space: nowrap; }
+.skill-val b { color: var(--text-primary); }
+.skill-meta { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-tertiary); margin-top: 6px; }
+.quick { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+.skill-more { display: none; margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.06); }
+.skill.open .skill-more { display: block; }
+.skill-more .form { margin-top: 0; padding-top: 0; border-top: 0; }
+.skill-more .form + .form { margin-top: 8px; }
+.danger-link { background: none; border: 0; color: var(--danger); font-family: inherit; font-size: 12px; cursor: pointer; padding: 8px 0 0; opacity: 0.8; }
+</style>
+</head>
+<body>
+<div class="page">
+  <a class="back-link" href="index.html">← Home</a>
+  <h1 class="dash-title">Skills</h1>
+
+  <div class="section">
+    <div class="section-title">This week</div>
+    <div class="gm-card">
+      <div class="gm-header">
+        <div>
+          <div class="gm-eyebrow" id="weekLabel">This week</div>
+          <div class="gm-progress-row"><span class="gm-progress-num" id="weekNum">0m</span><span class="gm-progress-total" id="weekGoal">/ 0h</span></div>
+        </div>
+        <span class="gm-streak" id="weekPct">0%</span>
+      </div>
+      <div class="bar" id="weekBar"><span></span></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Skills</div>
+    <div class="gm-card">
+      <div id="skillList"></div>
+      <form class="form" id="skillForm" autocomplete="off">
+        <input class="gm-input" id="skillName" placeholder="New skill, e.g. German" required>
+        <input class="gm-input num" id="skillGoal" type="number" min="0.25" step="0.25" inputmode="decimal" placeholder="h / week">
+        <button class="gm-add" type="submit">Add skill</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Recent sessions</div>
+    <div class="gm-card">
+      <ul class="list" id="logList"></ul>
+      <div class="empty-state" id="logEmpty">No study sessions yet. Tap +15, +30 or +60 on a skill.</div>
+    </div>
+  </div>
+</div>
+
+<script src="life.js"></script>
+<script>
+(function () {
+  'use strict';
+  const L = window.Life, $ = id => document.getElementById(id);
+  const KEY = 'skills_v1';
+  const DEFAULTS = ['Math', 'Programming', 'Trading'].map((name, i) => ({ id: 'sk' + i, name, goal: 180 }));
+  const open = {};
+
+  function state() {
+    const s = L.load(KEY, null);
+    if (!s) return { skills: DEFAULTS.map(x => Object.assign({}, x)), logs: [] };
+    return { skills: Array.isArray(s.skills) ? s.skills : [], logs: Array.isArray(s.logs) ? s.logs : [] };
+  }
+  function put(s) { L.save(KEY, s); render(); }
+
+  function minutesIn(s, skillId, fromKey, toKey) {
+    return s.logs.filter(l => l.skillId === skillId && l.date >= fromKey && l.date < toKey).reduce((a, l) => a + (Number(l.min) || 0), 0);
+  }
+
+  function render() {
+    const s = state();
+    const ws = L.weekStart(), wk = L.dayKey(ws);
+    const nextWk = L.dayKey(new Date(ws.getTime() + 7 * L.DAY));
+    const lastWk = L.dayKey(new Date(ws.getTime() - 7 * L.DAY));
+
+    let total = 0, goal = 0;
+    $('skillList').innerHTML = s.skills.map(sk => {
+      const m = minutesIn(s, sk.id, wk, nextWk);
+      const prev = minutesIn(s, sk.id, lastWk, wk);
+      total += m; goal += Number(sk.goal) || 0;
+      const pct = sk.goal ? Math.min(100, (m / sk.goal) * 100) : 0;
+      const left = Math.max(0, (sk.goal || 0) - m);
+      return '<div class="skill' + (open[sk.id] ? ' open' : '') + '" data-skill="' + sk.id + '">'
+        + '<div class="skill-head"><span class="skill-name">' + L.esc(sk.name) + '</span>'
+        + '<span class="skill-val"><b>' + L.fmtMin(m) + '</b> / ' + L.fmtMin(sk.goal) + '</span></div>'
+        + '<div class="bar' + (pct >= 100 ? ' full' : '') + '"><span style="width:' + pct.toFixed(1) + '%"></span></div>'
+        + '<div class="skill-meta">' + (pct >= 100 ? 'Weekly goal reached ✓' : L.fmtMin(left) + ' to go') + ' · last week ' + L.fmtMin(prev) + '</div>'
+        + '<div class="quick">'
+        + [15, 30, 60].map(n => '<button class="gm-ghost" type="button" data-add="' + sk.id + '" data-min="' + n + '">+' + n + '</button>').join('')
+        + '<button class="gm-ghost" type="button" data-more="' + sk.id + '" aria-expanded="' + !!open[sk.id] + '">' + (open[sk.id] ? 'Less' : 'More…') + '</button></div>'
+        + '<div class="skill-more">'
+        + '<form class="form" data-logform="' + sk.id + '"><input class="gm-input num" name="min" type="number" min="1" step="1" inputmode="numeric" placeholder="Minutes" required>'
+        + '<input class="gm-input" name="date" type="date" value="' + L.dayKey() + '" aria-label="Date"><button class="gm-add" type="submit">Log</button></form>'
+        + '<form class="form" data-goalform="' + sk.id + '"><input class="gm-input num" name="goal" type="number" min="0.25" step="0.25" inputmode="decimal" value="' + ((sk.goal || 0) / 60) + '" aria-label="Weekly goal in hours">'
+        + '<span class="hint" style="margin:0;align-self:center">hours / week</span><button class="gm-ghost" type="submit">Save goal</button></form>'
+        + '<button class="danger-link" type="button" data-rmskill="' + sk.id + '">Delete ' + L.esc(sk.name) + ' and its sessions</button>'
+        + '</div></div>';
+    }).join('') || '<div class="empty-state">No skills yet. Add one below.</div>';
+
+    const pct = goal ? Math.min(100, (total / goal) * 100) : 0;
+    $('weekNum').textContent = L.fmtMin(total);
+    $('weekGoal').textContent = '/ ' + L.fmtMin(goal);
+    $('weekPct').textContent = Math.round(pct) + '%';
+    $('weekLabel').textContent = 'Week of ' + L.fmtDay(wk);
+    $('weekBar').querySelector('span').style.width = pct.toFixed(1) + '%';
+    $('weekBar').classList.toggle('full', pct >= 100);
+
+    const names = {}; s.skills.forEach(sk => { names[sk.id] = sk.name; });
+    const recent = s.logs.slice().sort((a, b) => b.date.localeCompare(a.date) || (b.at || 0) - (a.at || 0)).slice(0, 12);
+    $('logEmpty').hidden = recent.length > 0;
+    $('logList').innerHTML = recent.map(l =>
+      '<li class="gm-row"><div class="row-main"><div class="row-title">' + L.esc(names[l.skillId] || 'Deleted skill') + ' · ' + L.fmtMin(l.min) + '</div>'
+      + '<div class="row-meta">' + L.fmtDay(l.date) + '</div></div>'
+      + '<button class="row-del" data-dellog="' + l.id + '" aria-label="Delete session" type="button">×</button></li>').join('');
+  }
+
+  function addLog(skillId, min, date) {
+    const s = state();
+    if (!s.skills.find(x => x.id === skillId) || !(min > 0)) return;
+    s.logs.push({ id: L.uid('l'), skillId, min: Math.round(min), date: date || L.dayKey(), at: Date.now() });
+    put(s);
+  }
+
+  document.addEventListener('click', e => {
+    const a = e.target.closest('[data-add]');
+    if (a) { addLog(a.dataset.add, Number(a.dataset.min)); return; }
+    const m = e.target.closest('[data-more]');
+    if (m) { open[m.dataset.more] = !open[m.dataset.more]; render(); return; }
+    const d = e.target.closest('[data-dellog]');
+    if (d) { const s = state(); s.logs = s.logs.filter(x => x.id !== d.dataset.dellog); put(s); return; }
+    const r = e.target.closest('[data-rmskill]');
+    if (r) {
+      const s = state(), sk = s.skills.find(x => x.id === r.dataset.rmskill);
+      if (!sk || !confirm('Delete ' + sk.name + ' and all its study sessions?')) return;
+      s.skills = s.skills.filter(x => x.id !== sk.id); s.logs = s.logs.filter(x => x.skillId !== sk.id); put(s);
+    }
+  });
+  document.addEventListener('submit', e => {
+    const f = e.target;
+    if (f.dataset.logform) {
+      e.preventDefault();
+      addLog(f.dataset.logform, parseInt(f.elements.min.value, 10), f.elements.date.value || L.dayKey());
+    } else if (f.dataset.goalform) {
+      e.preventDefault();
+      const h = parseFloat(String(f.elements.goal.value).replace(',', '.'));
+      if (!(h > 0)) return;
+      const s = state(), sk = s.skills.find(x => x.id === f.dataset.goalform);
+      if (sk) { sk.goal = Math.round(h * 60); put(s); }
+    } else if (f.id === 'skillForm') {
+      e.preventDefault();
+      const name = $('skillName').value.trim();
+      if (!name) return;
+      const h = parseFloat(String($('skillGoal').value).replace(',', '.'));
+      const s = state();
+      s.skills.push({ id: L.uid('sk'), name, goal: h > 0 ? Math.round(h * 60) : 180 });
+      put(s);
+      $('skillName').value = ''; $('skillGoal').value = '';
+    }
+  });
+
+  render();
+  L.sync('skills', [KEY], render);
+})();
+</script>
+</body>
+</html>
